@@ -1,0 +1,30 @@
+# Test script for payment endpoints
+# Run this to test the payment endpoints
+
+echo "Testing TeleBirr payment endpoint..."
+echo "POST /api/v1/payments/telebirr/initiate"
+echo "Headers: Authorization: Bearer YOUR_JWT_TOKEN"
+echo "Body: {
+  \"phone_number\": \"0912345678\",
+  \"amount\": 1000,
+  \"group_id\": \"YOUR_GROUP_ID\"
+}"
+echo ""
+echo "Expected response (200 OK):"
+echo "{
+  \"success\": true,
+  \"reference\": \"TB-20260404...\","
+  \"ussd_status\": {...},
+  \"instructions\": \"...\"
+}"
+echo ""
+echo "Then verify payment:"
+echo "POST /api/v1/payments/telebirr/verify"
+echo "Body: { \"reference\": \"TB-20260404...\" }"
+echo ""
+echo "Expected response (200 OK):"
+echo "{
+  \"success\": true,
+  \"status\": \"completed\",
+  \"ready_for_winner_selection\": true
+}"
