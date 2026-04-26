@@ -261,27 +261,41 @@ async def change_password(payload: ChangePasswordPayload, current_user=Depends(g
 
 @router.get("/security/sessions", response_model=List[SessionInfo])
 async def get_sessions(current_user=Depends(get_current_user), db: Database = Depends(get_db)):
-    sessions = current_user.get("active_sessions") or _fallback_session()
-    normalized = [{**item, "last_active": _serialize_dt(item.get("last_active"))} for item in sessions]
-    current_user["active_sessions"] = normalized
-    _save_user(db, current_user)
-    return normalized
+    sessions = current_user.get("active_sessions") or []
+    if not sessions:
+        # Create a placeholder for current session
+        import uuid as _uuid
+        placeholder = {
+            "id": str(_uuid.uuid4()),
+            "device_name": "Current Session",
+            "browser": "Web Browser",
+            "os": "Unknown",
+            "ip_address": "127.0.0.1",
+            "location": "Local",
+            "last_active": utcnow().isoformat(),
+            "current": True,
+        }
+        db["users"].update_one({"_id": current_user["_id"]}, {"$set": {"active_sessions": [placeholder]}})
+        return [placeholder]
+    return [{**s, "last_active": _serialize_dt(s.get("last_active"))} for s in sessions]
 
 
 @router.delete("/security/sessions/{session_id}", response_model=List[SessionInfo])
 async def remove_session(session_id: str, current_user=Depends(get_current_user), db: Database = Depends(get_db)):
-    sessions = current_user.get("active_sessions") or _fallback_session()
-    filtered = [{**item, "last_active": _serialize_dt(item.get("last_active"))} for item in sessions if item.get("id") != session_id]
-    current_user["active_sessions"] = filtered
-    _save_user(db, current_user)
-    return filtered
+    sessions = current_user.get("active_sessions") or []
+    # Cannot terminate current session from here
+    filtered = [s for s in sessions if s.get("id") != session_id]
+    db["users"].update_one({"_id": current_user["_id"]}, {"$set": {"active_sessions": filtered, "updated_at": utcnow()}})
+    return [{**s, "last_active": _serialize_dt(s.get("last_active"))} for s in filtered]
 
 
 @router.post("/security/logout-all", response_model=List[SessionInfo])
 async def logout_all(current_user=Depends(get_current_user), db: Database = Depends(get_db)):
-    current_user["active_sessions"] = _fallback_session()
-    _save_user(db, current_user)
-    return current_user["active_sessions"]
+    # Keep only the current session
+    sessions = current_user.get("active_sessions") or []
+    current_only = [s for s in sessions if s.get("current")]
+    db["users"].update_one({"_id": current_user["_id"]}, {"$set": {"active_sessions": current_only, "updated_at": utcnow()}})
+    return [{**s, "last_active": _serialize_dt(s.get("last_active"))} for s in current_only]
 
 
 @router.get("/security/login-history", response_model=List[LoginHistoryItem])

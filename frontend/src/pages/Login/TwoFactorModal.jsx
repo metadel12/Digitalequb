@@ -9,7 +9,7 @@ function TwoFactorModal({ open, loading, code, onChange, onClose, onVerify }) {
             <DialogContent>
                 <Stack spacing={2} sx={{ pt: 1 }}>
                     <Typography color="text.secondary">
-                        Enter the 6-digit code from your authenticator app, SMS, email, or backup-code flow.
+                        Enter the 6-digit code sent to your registered email address.
                     </Typography>
                     <OTPInput value={code} onChange={onChange} />
                 </Stack>

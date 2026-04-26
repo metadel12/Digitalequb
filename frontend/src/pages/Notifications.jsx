@@ -532,7 +532,7 @@ const Notifications = () => {
     };
 
     return (
-        <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', py: 4 }}>
+        <Box sx={{ bgcolor: 'background.default', minHeight: '100vh', py: 4 }}>
             <Container maxWidth="lg">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}

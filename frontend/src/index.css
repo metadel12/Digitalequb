@@ -715,6 +715,182 @@
     }
 }
 
+/* ==================== DARK MODE OVERRIDES ==================== */
+
+.dark body {
+    background-color: #0f172a;
+    color: #f1f5f9;
+}
+
+/* All page wrappers */
+.dark .MuiBox-root[class*="minHeight"],
+.dark .MuiContainer-root {
+    color: inherit;
+}
+
+/* MUI Typography in dark mode */
+.dark .MuiTypography-root:not([class*="color"]) {
+    color: inherit;
+}
+
+/* MUI Paper and Card dark backgrounds */
+.dark .MuiPaper-root {
+    background-color: #1e293b;
+    color: #f1f5f9;
+}
+
+.dark .MuiCard-root {
+    background-color: #1e293b;
+    color: #f1f5f9;
+}
+
+/* MUI Table */
+.dark .MuiTableHead-root .MuiTableCell-root {
+    background-color: #0f172a;
+    color: #94a3b8;
+    border-color: #334155;
+}
+
+.dark .MuiTableBody-root .MuiTableCell-root {
+    color: #cbd5e1;
+    border-color: #334155;
+}
+
+.dark .MuiTableRow-root:hover {
+    background-color: rgba(255,255,255,0.04) !important;
+}
+
+/* MUI Input fields */
+.dark .MuiOutlinedInput-root {
+    color: #f1f5f9;
+}
+
+.dark .MuiOutlinedInput-notchedOutline {
+    border-color: #475569 !important;
+}
+
+.dark .MuiInputLabel-root {
+    color: #94a3b8;
+}
+
+.dark .MuiSelect-icon {
+    color: #94a3b8;
+}
+
+/* MUI Tabs */
+.dark .MuiTab-root {
+    color: #94a3b8;
+}
+
+.dark .MuiTab-root.Mui-selected {
+    color: #90caf9;
+}
+
+/* MUI Divider */
+.dark .MuiDivider-root {
+    border-color: #334155;
+}
+
+/* MUI Chip */
+.dark .MuiChip-root:not([class*="color"]) {
+    background-color: #334155;
+    color: #cbd5e1;
+}
+
+/* MUI Avatar default */
+.dark .MuiAvatar-colorDefault {
+    background-color: #475569;
+}
+
+/* MUI LinearProgress track */
+.dark .MuiLinearProgress-root {
+    background-color: #334155;
+}
+
+/* MUI Skeleton */
+.dark .MuiSkeleton-root {
+    background-color: #334155;
+}
+
+/* MUI Alert */
+.dark .MuiAlert-standardInfo {
+    background-color: #0c2a4a;
+    color: #7dd3fc;
+}
+
+.dark .MuiAlert-standardWarning {
+    background-color: #3d2000;
+    color: #fcd34d;
+}
+
+.dark .MuiAlert-standardError {
+    background-color: #3d0000;
+    color: #fca5a5;
+}
+
+.dark .MuiAlert-standardSuccess {
+    background-color: #052e16;
+    color: #6ee7b7;
+}
+
+/* Background overrides */
+.dark .bg-white { background-color: #1e293b !important; }
+.dark .bg-gray-50,
+.dark .bg-slate-50 { background-color: #0f172a !important; }
+.dark .bg-gray-100,
+.dark .bg-slate-100 { background-color: #1e293b !important; }
+.dark .bg-gray-200,
+.dark .bg-slate-200 { background-color: #334155 !important; }
+
+/* Text overrides */
+.dark .text-slate-900,
+.dark .text-gray-900 { color: #f1f5f9 !important; }
+.dark .text-slate-800,
+.dark .text-gray-800 { color: #e2e8f0 !important; }
+.dark .text-slate-700,
+.dark .text-gray-700 { color: #cbd5e1 !important; }
+.dark .text-slate-600,
+.dark .text-gray-600 { color: #94a3b8 !important; }
+.dark .text-slate-500,
+.dark .text-gray-500 { color: #64748b !important; }
+
+/* Border overrides */
+.dark .border-slate-200,
+.dark .border-gray-200 { border-color: #334155 !important; }
+.dark .border-slate-300,
+.dark .border-gray-300 { border-color: #475569 !important; }
+
+/* Dashboard layout background */
+.dark [style*="linear-gradient(180deg,#f8fafc"],
+.dark [style*="linear-gradient(180deg, #f8fafc"] {
+    background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
+}
+
+/* Dashboard cards */
+.dark .rounded-\[28px\] {
+    background-color: #1e293b !important;
+    border-color: #334155 !important;
+}
+
+.dark .rounded-\[32px\] {
+    background: radial-gradient(circle at top left, rgba(59,130,246,0.15), transparent 45%), linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+    border-color: #334155 !important;
+}
+
+/* Chart containers */
+.dark .recharts-cartesian-grid line { stroke: #334155 !important; }
+.dark .recharts-text { fill: #94a3b8 !important; }
+.dark .recharts-tooltip-wrapper .recharts-default-tooltip {
+    background-color: #1e293b !important;
+    border-color: #334155 !important;
+    color: #f1f5f9 !important;
+}
+
+/* Table rows */
+.dark tr { border-color: #334155 !important; }
+.dark th { color: #94a3b8 !important; }
+.dark td { color: #cbd5e1 !important; }
+
 /* ==================== CUSTOM KEYFRAMES ==================== */
 
 @keyframes fadeIn {

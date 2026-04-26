@@ -55,6 +55,8 @@ def ensure_indexes(db: Database) -> None:
         ("groups", {"keys": "created_by", "kwargs": {}}),
         ("wallets", {"keys": "user_id", "kwargs": {"unique": True}}),
         ("wallet_transactions", {"keys": [("wallet_id", 1), ("created_at", -1)], "kwargs": {}}),
+        ("session_codes", {"keys": "token", "kwargs": {"unique": True}}),
+        ("session_codes", {"keys": [("type", 1), ("user_id", 1), ("used", 1)], "kwargs": {}}),
         ("payment_proofs", {"keys": [("group_id", 1), ("user_id", 1), ("round_number", 1)], "kwargs": {}}),
         ("winner_records", {"keys": [("group_id", 1), ("round_number", -1)], "kwargs": {}}),
         ("system_wallet_transactions", {"keys": [("created_at", -1)], "kwargs": {}}),

@@ -189,6 +189,12 @@ const Settings = () => {
         settingsService.writeSettingsDraft({ appearance, notifications, security, language, dataSettings });
     }, [appearance, notifications, security, language, dataSettings]);
 
+    useEffect(() => {
+        if (!loading) {
+            applyAppearanceSettings(appearance);
+        }
+    }, [appearance, applyAppearanceSettings, loading]);
+
     const handleSave = async () => {
         setSaving(true);
         try {
@@ -309,6 +315,16 @@ const Settings = () => {
         }
     };
 
+    const handleRemoveSession = async (sessionId) => {
+        try {
+            const next = await settingsService.removeSession(sessionId);
+            setSessions(next);
+            enqueueSnackbar('Session removed', { variant: 'success' });
+        } catch (error) {
+            enqueueSnackbar('Failed to remove session', { variant: 'error' });
+        }
+    };
+
     const header = (
         <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
             <Box>
@@ -362,6 +378,7 @@ const Settings = () => {
                             sessions={sessions}
                             loginHistory={loginHistory}
                             onTerminateSession={handleTerminateSession}
+                            onRemoveSession={handleRemoveSession}
                             onLogoutAll={async () => setSessions(await settingsService.logoutAllSessions())}
                             onDeactivate={() => enqueueSnackbar('Account deactivation flow can be connected next.', { variant: 'info' })}
                             onDelete={() => setConfirmDelete(true)}

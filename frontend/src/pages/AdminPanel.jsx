@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import AdminLayout from '../components/admin/AdminLayout';
 import GroupOversight from '../components/admin/GroupOversight';
+import UserManagement from '../components/admin/UserManagement';
+import WinnerManager from '../components/admin/WinnerManager';
 import AdminTrusteeDashboard from './Admin/AdminTrusteeDashboard';
 import Payments from './Payments';
 import CreditScore from './CreditScore';
@@ -20,20 +22,28 @@ const AdminPanel = () => {
         <Routes>
             <Route element={<AdminLayout />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
-                <Route path="dashboard" element={<AdminTrusteeDashboard />} />
-                <Route path="groups" element={<GroupOversight />} />
+                <Route
+                    path="dashboard"
+                    element={
+                        <div className="space-y-6">
+                            <AdminTrusteeDashboard />
+                            <WinnerManager />
+                        </div>
+                    }
+                />
+                <Route
+                    path="groups"
+                    element={
+                        <div className="space-y-6">
+                            <GroupOversight />
+                            <WinnerManager />
+                        </div>
+                    }
+                />
                 <Route path="transactions" element={<Transactions />} />
                 <Route path="payments" element={<Payments />} />
                 <Route path="credit-score" element={<CreditScore />} />
-                <Route
-                    path="users"
-                    element={
-                        <PlaceholderPage
-                            title="Users"
-                            description="User management can be expanded here. The admin dashboard and group flows are now wired and available."
-                        />
-                    }
-                />
+                <Route path="users" element={<UserManagement />} />
                 <Route
                     path="settings"
                     element={

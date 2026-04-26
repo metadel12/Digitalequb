@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useTheme } from '../../context/ThemeContext';
 import {
     HomeIcon,
     UserIcon,
@@ -22,31 +23,11 @@ import {
 const AdminLayout = () => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
-    const [darkMode, setDarkMode] = useState(false);
     const [notifications, setNotifications] = useState([]);
     const { user, logout } = useAuth();
+    const { isDarkMode, toggleMode } = useTheme();
     const navigate = useNavigate();
     const location = useLocation();
-
-    useEffect(() => {
-        // Load dark mode preference
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'dark') {
-            setDarkMode(true);
-            document.documentElement.classList.add('dark');
-        }
-    }, []);
-
-    const toggleDarkMode = () => {
-        setDarkMode(!darkMode);
-        if (!darkMode) {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('theme', 'dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('theme', 'light');
-        }
-    };
 
     const handleLogout = async () => {
         await logout();
@@ -169,8 +150,8 @@ const AdminLayout = () => {
                   `}
                                 >
                                     <link.icon className={`h-5 w-5 mr-3 ${isActive
-                                            ? 'text-primary-600 dark:text-primary-400'
-                                            : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-500'
+                                        ? 'text-primary-600 dark:text-primary-400'
+                                        : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-500'
                                         }`} />
                                     <div className="flex-1">
                                         <div>{link.label}</div>
@@ -235,10 +216,10 @@ const AdminLayout = () => {
                         <div className="flex items-center space-x-4">
                             {/* Dark Mode Toggle */}
                             <button
-                                onClick={toggleDarkMode}
+                                onClick={toggleMode}
                                 className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700 transition-colors"
                             >
-                                {darkMode ? (
+                                {isDarkMode ? (
                                     <SunIcon className="h-5 w-5" />
                                 ) : (
                                     <MoonIcon className="h-5 w-5" />

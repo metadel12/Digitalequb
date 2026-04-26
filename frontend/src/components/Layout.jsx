@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useTheme } from '../context/ThemeContext';
 import {
     Box,
     AppBar,
@@ -21,7 +23,6 @@ import {
     ListItemIcon as MuiListItemIcon,
     ListItemText as MuiListItemText,
     useMediaQuery,
-    useTheme,
     alpha,
     Breadcrumbs,
     Link as MuiLink,
@@ -86,7 +87,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
-import { walletAPI } from '../services/api';
+import { walletAPI, groups as groupsAPI, transactions as transactionsAPI } from '../services/api';
 
 // Styled components
 const drawerWidth = 280;
@@ -179,10 +180,11 @@ const mockNotifications = [
     { id: 3, title: 'Contest Winner!', message: 'Congratulations! You won this week\'s draw', time: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), read: true, type: 'contest' },
 ];
 
-const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
-    const theme = useTheme();
-    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-    const isTablet = useMediaQuery(theme.breakpoints.down('lg'));
+const Layout = ({ children }) => {
+    const muiTheme = useMuiTheme();
+    const { isDarkMode, toggleMode } = useTheme();
+    const isMobile = useMediaQuery(muiTheme.breakpoints.down('md'));
+    const isTablet = useMediaQuery(muiTheme.breakpoints.down('lg'));
     const navigate = useNavigate();
     const location = useLocation();
     const { user: authUser, logout } = useAuth();
@@ -210,8 +212,21 @@ const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
         role: normalizeRole(authUser?.role || (authUser?.roles?.[0] ?? 'user')) || 'user',
         avatar: authUser?.avatar || null,
         balance: walletBalance ?? authUser?.balance,
-        verified: authUser?.verified ?? true,
+        emailVerified: authUser?.email_verified ?? false,
+        phoneVerified: authUser?.phone_verified ?? false,
+        createdAt: authUser?.created_at || null,
     };
+
+    const fullyVerified = currentUser.emailVerified && currentUser.phoneVerified;
+
+    // Days remaining to verify before account deactivation (30-day window from registration)
+    const daysRemaining = React.useMemo(() => {
+        if (fullyVerified || !currentUser.createdAt) return null;
+        const created = new Date(currentUser.createdAt);
+        const deadline = new Date(created.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const diff = Math.ceil((deadline - new Date()) / (1000 * 60 * 60 * 24));
+        return Math.max(0, diff);
+    }, [fullyVerified, currentUser.createdAt]);
 
     const loadWalletBalance = useCallback(async () => {
         if (!authUser) {
@@ -338,19 +353,69 @@ const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
     const handleSearchChange = async (e) => {
         const query = e.target.value;
         setSearchQuery(query);
+        const q = query.trim().toLowerCase();
 
-        if (query.length > 2) {
-            setSearching(true);
-            // Simulate search API call
-            setTimeout(() => {
-                setSearchResults([
-                    { id: 1, title: 'Group 1', description: 'Savings Group', path: '/groups/1', icon: <GroupIcon /> },
-                    { id: 2, title: 'Payment #123', description: 'ETB 500', path: '/payments', icon: <PaymentsIcon /> },
-                ]);
-                setSearching(false);
-            }, 500);
-        } else {
-            setSearchResults([]);
+        if (!q) { setSearchResults([]); return; }
+
+        // Instantly show matching nav pages
+        const navMatches = navigationItems
+            .filter(n => n.label.toLowerCase().includes(q))
+            .map(n => ({ id: `nav-${n.path}`, title: n.label, description: 'Go to page', path: n.path, icon: n.icon }));
+        setSearchResults(navMatches);
+
+        if (q.length < 2) return;
+        setSearching(true);
+        try {
+            const [grpRes, txRes] = await Promise.allSettled([
+                groupsAPI.getGroups({ limit: 100 }),
+                transactionsAPI.getTransactions({ page: 1, page_size: 100 }),
+            ]);
+
+            const extra = [];
+
+            // Groups — backend returns a plain array
+            if (grpRes.status === 'fulfilled') {
+                const raw = grpRes.value?.data;
+                const items = Array.isArray(raw) ? raw : [];
+                items
+                    .filter(g => (g?.name || '').toLowerCase().includes(q) || (g?.description || '').toLowerCase().includes(q))
+                    .slice(0, 5)
+                    .forEach(g => extra.push({
+                        id: `g-${g.id}`,
+                        title: g.name,
+                        description: `Group · ${g.status || 'active'} · ${g.current_members || 0} members`,
+                        path: `/groups/${g.id}`,
+                        icon: <GroupIcon fontSize="small" />,
+                    }));
+            }
+
+            // Transactions — backend returns { transactions, total, page, page_size } or plain array
+            if (txRes.status === 'fulfilled') {
+                const raw = txRes.value?.data;
+                const items = Array.isArray(raw) ? raw
+                    : Array.isArray(raw?.transactions) ? raw.transactions
+                    : Array.isArray(raw?.items) ? raw.items : [];
+                items
+                    .filter(t => {
+                        const desc = (t?.description || t?.type || '').toLowerCase();
+                        const amt = String(t?.amount || '');
+                        return desc.includes(q) || amt.includes(q);
+                    })
+                    .slice(0, 5)
+                    .forEach(t => extra.push({
+                        id: `t-${t.id || t._id}`,
+                        title: t.description || (t.type || 'Transaction').replace(/_/g, ' '),
+                        description: `ETB ${Number(t.amount || 0).toLocaleString()} · ${t.status || ''}`,
+                        path: '/transactions',
+                        icon: <ReceiptIcon fontSize="small" />,
+                    }));
+            }
+
+            setSearchResults([...navMatches, ...extra]);
+        } catch {
+            // keep nav results
+        } finally {
+            setSearching(false);
         }
     };
 
@@ -363,23 +428,28 @@ const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
     const drawerContent = (
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             {/* Logo */}
-            <LogoContainer onClick={() => handleNavigation('/')}>
-                {!collapsed && !isMobile && (
-                    <Typography variant="h6" fontWeight="bold" sx={{ flexGrow: 1 }}>
-                        DigiEqub
-                    </Typography>
-                )}
-                {collapsed && !isMobile && (
-                    <Typography variant="h6" fontWeight="bold">
-                        D
-                    </Typography>
-                )}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider', minHeight: 64 }}>
+                <Box
+                    sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', flex: 1 }}
+                    onClick={() => handleNavigation('/dashboard')}
+                >
+                    {!collapsed && !isMobile && (
+                        <Typography variant="h6" fontWeight="bold">DigiEqub</Typography>
+                    )}
+                    {collapsed && !isMobile && (
+                        <Typography variant="h6" fontWeight="bold">D</Typography>
+                    )}
+                </Box>
                 {!isMobile && (
-                    <IconButton size="small" onClick={handleCollapseToggle}>
+                    <IconButton
+                        size="small"
+                        onClick={(e) => { e.stopPropagation(); handleCollapseToggle(); }}
+                        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    >
                         {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
                     </IconButton>
                 )}
-            </LogoContainer>
+            </Box>
 
             {/* User Info */}
             <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
@@ -398,28 +468,73 @@ const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
                             <Typography variant="caption" color="text.secondary">
                                 {currentUser.email}
                             </Typography>
-                            {currentUser.verified && (
-                                <Chip
-                                    icon={<VerifiedIcon />}
-                                    label="Verified"
-                                    size="small"
-                                    color="success"
-                                    variant="outlined"
-                                    sx={{ mt: 0.5, height: 20, '& .MuiChip-label': { fontSize: '0.625rem' } }}
-                                />
-                            )}
+                            {/* Verification status chips */}
+                            <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: 'wrap', gap: 0.5 }}>
+                                {fullyVerified ? (
+                                    <Chip
+                                        icon={<VerifiedIcon />}
+                                        label="Verified"
+                                        size="small"
+                                        color="success"
+                                        variant="outlined"
+                                        sx={{ height: 20, '& .MuiChip-label': { fontSize: '0.6rem' } }}
+                                    />
+                                ) : (
+                                    <>
+                                        <Chip
+                                            icon={currentUser.emailVerified ? <CheckCircleIcon /> : <WarningIcon />}
+                                            label={currentUser.emailVerified ? 'Email ✓' : 'Email ✗'}
+                                            size="small"
+                                            color={currentUser.emailVerified ? 'success' : 'warning'}
+                                            variant="outlined"
+                                            sx={{ height: 20, '& .MuiChip-label': { fontSize: '0.6rem' } }}
+                                        />
+                                        <Chip
+                                            icon={currentUser.phoneVerified ? <CheckCircleIcon /> : <WarningIcon />}
+                                            label={currentUser.phoneVerified ? 'Phone ✓' : 'Phone ✗'}
+                                            size="small"
+                                            color={currentUser.phoneVerified ? 'success' : 'warning'}
+                                            variant="outlined"
+                                            sx={{ height: 20, '& .MuiChip-label': { fontSize: '0.6rem' } }}
+                                        />
+                                    </>
+                                )}
+                            </Stack>
                         </Box>
                     )}
                 </Box>
                 {(!collapsed || isMobile) && currentUser.balance !== undefined && (
-                    <Box sx={{ mt: 2, p: 1.5, bgcolor: alpha(theme.palette.primary.main, 0.08), borderRadius: 2 }}>
-                        <Typography variant="caption" color="text.secondary">
-                            Balance
-                        </Typography>
+                    <Box sx={{ mt: 2, p: 1.5, bgcolor: alpha(muiTheme.palette.primary.main, 0.08), borderRadius: 2 }}>
+                        <Typography variant="caption" color="text.secondary">Balance</Typography>
                         <Typography variant="h6" fontWeight="bold" color="primary.main">
-                            ETB {currentUser.balance.toLocaleString()}
+                            ETB {Number(currentUser.balance ?? 0).toLocaleString()}
                         </Typography>
                     </Box>
+                )}
+                {/* Verification countdown warning */}
+                {(!collapsed || isMobile) && !fullyVerified && daysRemaining !== null && (
+                    <Alert
+                        severity={daysRemaining <= 5 ? 'error' : 'warning'}
+                        sx={{ mt: 1.5, py: 0.5, fontSize: '0.7rem', borderRadius: 2 }}
+                        icon={<WarningIcon fontSize="small" />}
+                    >
+                        {daysRemaining === 0
+                            ? 'Account temporarily deactivated. Please verify to restore access.'
+                            : !currentUser.emailVerified && !currentUser.phoneVerified
+                                ? `Verify email & phone within ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} or account will be deactivated.`
+                                : !currentUser.emailVerified
+                                    ? `Phone not verified. Verify within ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}.`
+                                    : `Email not verified. Verify within ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}.`
+                        }
+                        <Button
+                            size="small"
+                            variant="text"
+                            sx={{ display: 'block', mt: 0.5, p: 0, fontSize: '0.65rem', minWidth: 0 }}
+                            onClick={() => navigate('/settings')}
+                        >
+                            Verify now →
+                        </Button>
+                    </Alert>
                 )}
             </Box>
 
@@ -560,9 +675,9 @@ const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
                             </Tooltip>
 
                             {/* Theme Toggle */}
-                            <Tooltip title={darkMode ? 'Light mode' : 'Dark mode'}>
-                                <IconButton onClick={onThemeToggle}>
-                                    {darkMode ? <LightModeIcon /> : <DarkModeIcon />}
+                            <Tooltip title={isDarkMode ? 'Light mode' : 'Dark mode'}>
+                                <IconButton onClick={toggleMode}>
+                                    {isDarkMode ? <LightModeIcon /> : <DarkModeIcon />}
                                 </IconButton>
                             </Tooltip>
 
@@ -668,7 +783,7 @@ const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
                                 onClick={() => handleNotificationClick(notification)}
                                 sx={{
                                     whiteSpace: 'normal',
-                                    bgcolor: notification.read ? 'transparent' : alpha(theme.palette.primary.main, 0.05),
+                                    bgcolor: notification.read ? 'transparent' : alpha(muiTheme.palette.primary.main, 0.05),
                                 }}
                             >
                                 <Box sx={{ flex: 1 }}>
@@ -709,7 +824,7 @@ const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
                 <TextField
                     fullWidth
                     size="small"
-                    placeholder="Search groups, payments, users..."
+                    placeholder="Search groups, transactions..."
                     value={searchQuery}
                     onChange={handleSearchChange}
                     autoFocus
@@ -727,27 +842,27 @@ const Layout = ({ children, onThemeToggle = () => { }, darkMode = false }) => {
                     }}
                 />
                 {searchResults.length > 0 && (
-                    <Box sx={{ mt: 2 }}>
+                    <Box sx={{ mt: 1 }}>
                         {searchResults.map((result) => (
                             <MenuItem
                                 key={result.id}
-                                onClick={() => {
-                                    navigate(result.path);
-                                    handleSearchClose();
-                                }}
+                                onClick={() => { navigate(result.path); handleSearchClose(); }}
+                                sx={{ borderRadius: 1, mb: 0.5 }}
                             >
                                 <ListItemIcon>{result.icon}</ListItemIcon>
-                                <ListItemText
-                                    primary={result.title}
-                                    secondary={result.description}
-                                />
+                                <ListItemText primary={result.title} secondary={result.description} />
                             </MenuItem>
                         ))}
                     </Box>
                 )}
-                {searchQuery.length > 2 && searchResults.length === 0 && !searching && (
+                {searchQuery.length >= 1 && !searching && searchResults.length === 0 && (
                     <Typography variant="body2" sx={{ mt: 2, textAlign: 'center', color: 'text.secondary' }}>
-                        No results found
+                        No results found for "{searchQuery}"
+                    </Typography>
+                )}
+                {searchQuery.length === 0 && (
+                    <Typography variant="caption" sx={{ mt: 1.5, display: 'block', textAlign: 'center', color: 'text.secondary' }}>
+                        Type to search groups and transactions
                     </Typography>
                 )}
             </Popover>

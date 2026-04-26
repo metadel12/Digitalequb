@@ -29,6 +29,7 @@ const Unauthorized = lazy(() => import('../pages/Unauthorized'));
 const ForgotPassword = lazy(() => import('../pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('../pages/ResetPassword'));
 const VerifyEmail = lazy(() => import('../pages/VerifyEmail'));
+const SocialContactDetails = lazy(() => import('../pages/SocialContactDetails'));
 
 // Loading component
 const LoadingScreen = () => (
@@ -293,6 +294,14 @@ const routeConfig = [
         title: 'Admin Panel',
     },
 
+    {
+        path: '/complete-profile',
+        element: <SocialContactDetails />,
+        layout: null,
+        protected: true,
+        roles: ['user', 'admin', 'super_admin'],
+        title: 'Complete Profile',
+    },
     // Error routes
     {
         path: '/unauthorized',

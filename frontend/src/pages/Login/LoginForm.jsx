@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     Box,
@@ -8,19 +8,13 @@ import {
     Divider,
     FormControlLabel,
     Link,
-    List,
-    ListItem,
-    ListItemText,
     Stack,
     Tab,
     Tabs,
     TextField,
     Typography,
 } from '@mui/material';
-import {
-    Fingerprint as FingerprintIcon,
-    QrCode2 as QrCodeIcon,
-} from '@mui/icons-material';
+import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import PhoneInput from '../../components/common/PhoneInput';
 import SocialButtons from '../../components/common/SocialButtons';
@@ -31,14 +25,10 @@ import { validateEmail, validatePassword, validatePhone } from '../../utils/vali
 import ForgotPassword from './ForgotPassword';
 import TwoFactorModal from './TwoFactorModal';
 
-const mockSessions = [
-    { label: 'Current browser', description: 'Chrome on Windows, this device' },
-    { label: 'Mobile session', description: 'Trusted mobile device, biometric ready' },
-];
-
 function LoginForm({ onNavigateRegister }) {
     const auth = useAuth();
     const session = useSession();
+    const location = useLocation();
     const [mode, setMode] = useState('email');
     const [email, setEmail] = useState('');
     const [countryCode, setCountryCode] = useState('+251');
@@ -53,6 +43,43 @@ function LoginForm({ onNavigateRegister }) {
     const [twoFactorUserId, setTwoFactorUserId] = useState(null);
     const [submitting, setSubmitting] = useState(false);
 
+    // This ref tracks whether we have already handled an oauth_session token.
+    // Once set to a token value it never resets, so no re-runs happen even if
+    // location changes (e.g. navigate() inside finishLogin).
+    const handledOauthTokenRef = useRef(null);
+    const authRef = useRef(auth);
+    authRef.current = auth;
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+
+        const oauthError = params.get('oauth_error');
+        if (oauthError) {
+            setError(params.get('error_message') || 'Social login failed. Please try again.');
+            return;
+        }
+
+        const oauthSession = params.get('oauth_session');
+        // If no token, or we already handled this exact token, do nothing.
+        if (!oauthSession || handledOauthTokenRef.current === oauthSession) return;
+
+        // Mark as handled BEFORE the async call so no second call can slip through.
+        handledOauthTokenRef.current = oauthSession;
+
+        let cancelled = false;
+        (async () => {
+            setSubmitting(true);
+            const result = await authRef.current.completeSocialLogin(oauthSession);
+            if (!cancelled && result?.error) {
+                setError(result.error);
+                setSubmitting(false);
+            }
+        })();
+
+        return () => { cancelled = true; };
+    // Only re-run when the search string changes — NOT on auth function changes.
+    }, [location.search]);
+
     const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
     const identifier = useMemo(
         () => (mode === 'email' ? email.trim() : `${countryCode}${phoneNumber}`),
@@ -61,39 +88,29 @@ function LoginForm({ onNavigateRegister }) {
 
     const validate = () => {
         if (mode === 'email') {
-            const emailValidation = validateEmail(email);
-            if (emailValidation !== true) return emailValidation;
+            const r = validateEmail(email);
+            if (r !== true) return r;
         } else {
-            const phoneValidation = validatePhone(countryCode, phoneNumber);
-            if (phoneValidation !== true) return phoneValidation;
+            const r = validatePhone(countryCode, phoneNumber);
+            if (r !== true) return r;
         }
-
-        const passwordValidation = validatePassword(password);
-        if (passwordValidation !== true) return passwordValidation;
+        const r = validatePassword(password);
+        if (r !== true) return r;
         return true;
     };
 
     const handleSubmit = async () => {
         const validation = validate();
-        if (validation !== true) {
-            setError(validation);
-            return;
-        }
-
+        if (validation !== true) { setError(validation); return; }
         setError('');
         setSubmitting(true);
         try {
             const result = await auth.login(identifier, password, rememberMe, buildDeviceInfo());
-            if (result?.requires_2fa) {
-                setTwoFactorOpen(true);
-                setTwoFactorUserId(result.user_id);
-                return;
-            }
+            if (result?.requires_2fa) return;
             if (!result?.success) {
                 setError(result?.error || 'Invalid email or password. Please try again.');
                 return;
             }
-
             if (rememberMe) {
                 const expiry = new Date(Date.now() + session.rememberMeDays * 24 * 60 * 60 * 1000);
                 session.setSession(expiry.toISOString());
@@ -114,32 +131,32 @@ function LoginForm({ onNavigateRegister }) {
 
     const handleForgotComplete = ({ email: nextEmail, password: nextPassword }) => {
         setForgotOpen(false);
-        toast.success(`Password reset flow completed for ${nextEmail}. Use the new password to sign in.`);
+        toast.success(`Password reset completed for ${nextEmail}. Use the new password to sign in.`);
         setEmail(nextEmail);
         setPassword(nextPassword);
         setMode('email');
     };
 
-    const handleSocialClick = async (provider) => {
+    const handleSocialClick = (provider) => {
+        if (!['google', 'apple'].includes(provider)) {
+            toast(`${provider[0].toUpperCase() + provider.slice(1)} login is not enabled yet.`);
+            return;
+        }
         setSocialLoading(provider);
-        await new Promise((resolve) => window.setTimeout(resolve, 800));
-        setSocialLoading(null);
-        toast(`${provider[0].toUpperCase() + provider.slice(1)} login is ready for backend OAuth hookup.`);
+        auth.startSocialLogin(provider);
     };
 
     return (
         <Stack spacing={3}>
             <SocialButtons onClick={handleSocialClick} disabled={submitting} loadingProvider={socialLoading} />
-            <Divider>
-                <Chip label="Primary Login" size="small" />
-            </Divider>
-            <Tabs value={mode} onChange={(_, value) => setMode(value)} sx={{ alignSelf: 'flex-start' }}>
+            <Divider><Chip label="Primary Login" size="small" /></Divider>
+            <Tabs value={mode} onChange={(_, v) => setMode(v)} sx={{ alignSelf: 'flex-start' }}>
                 <Tab value="email" label="Email" />
                 <Tab value="phone" label="Phone" />
             </Tabs>
             {error && <Alert severity="error">{error}</Alert>}
             {mode === 'email' ? (
-                <TextField label="Email address" value={email} onChange={(event) => setEmail(event.target.value)} fullWidth autoComplete="email" />
+                <TextField label="Email address" value={email} onChange={(e) => setEmail(e.target.value)} fullWidth autoComplete="email" />
             ) : (
                 <PhoneInput
                     countryCode={countryCode}
@@ -152,14 +169,14 @@ function LoginForm({ onNavigateRegister }) {
                 label="Password"
                 type="password"
                 value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(e) => setPassword(e.target.value)}
                 fullWidth
                 autoComplete="current-password"
                 helperText={`Strength: ${passwordStrength.label}`}
             />
             <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }}>
                 <FormControlLabel
-                    control={<Checkbox checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />}
+                    control={<Checkbox checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />}
                     label="Remember me for 30 days"
                 />
                 <Link component="button" onClick={() => setForgotOpen(true)} underline="hover">
@@ -169,26 +186,6 @@ function LoginForm({ onNavigateRegister }) {
             <Button variant="contained" size="large" onClick={handleSubmit} disabled={submitting}>
                 {submitting ? 'Signing in...' : 'Sign in'}
             </Button>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-                <Button variant="outlined" startIcon={<FingerprintIcon />} fullWidth onClick={() => toast('Biometric login UI is ready for mobile device binding.')}>
-                    Biometric login
-                </Button>
-                <Button variant="outlined" startIcon={<QrCodeIcon />} fullWidth onClick={() => toast('QR login is ready for backend session approval flow.')}>
-                    QR code login
-                </Button>
-            </Stack>
-            <Box>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                    Active session patterns
-                </Typography>
-                <List dense disablePadding>
-                    {mockSessions.map((sessionItem) => (
-                        <ListItem key={sessionItem.label} disableGutters>
-                            <ListItemText primary={sessionItem.label} secondary={sessionItem.description} />
-                        </ListItem>
-                    ))}
-                </List>
-            </Box>
             <Typography color="text.secondary" variant="body2">
                 New to DigiEqub?{' '}
                 <Link component="button" underline="hover" onClick={onNavigateRegister}>

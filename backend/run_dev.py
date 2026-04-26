@@ -23,13 +23,16 @@ def main() -> None:
         print("Starting DigiEqub backend with auto-reload enabled.")
     print(f"Using port {port}")
 
-    uvicorn.run(
-        "app.main:app",
-        host="127.0.0.1",
-        port=port,
-        reload=reload_enabled,
-        reload_dirs=["app"] if reload_enabled else None,
-    )
+    try:
+        uvicorn.run(
+            "app.main:app",
+            host="127.0.0.1",
+            port=port,
+            reload=reload_enabled,
+            reload_dirs=["app"] if reload_enabled else None,
+        )
+    except KeyboardInterrupt:
+        print("DigiEqub backend stopped.")
 
 
 if __name__ == "__main__":

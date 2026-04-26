@@ -5,11 +5,11 @@ from app.core.config import settings
 
 class EmailService:
     def __init__(self):
-        self.smtp_host = settings.SMTP_HOST
-        self.smtp_port = settings.SMTP_PORT
-        self.smtp_user = settings.SMTP_USER
-        self.smtp_password = settings.SMTP_PASSWORD
-        self.email_from = settings.EMAIL_FROM
+        self.smtp_host = getattr(settings, "SMTP_HOST", None)
+        self.smtp_port = getattr(settings, "SMTP_PORT", 587)
+        self.smtp_user = getattr(settings, "SMTP_USER", None)
+        self.smtp_password = getattr(settings, "SMTP_PASSWORD", None)
+        self.email_from = getattr(settings, "EMAIL_FROM", None) or getattr(settings, "FROM_EMAIL", "noreply@digiequb.com")
 
     async def send_email(self, to_email: str, subject: str, body: str):
         try:
@@ -19,6 +19,12 @@ class EmailService:
             msg['Subject'] = subject
 
             msg.attach(MIMEText(body, 'html'))
+
+            if not self.smtp_host or not self.smtp_user or not self.smtp_password:
+                return {
+                    "status": "failed",
+                    "message": "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASSWORD to enable email delivery.",
+                }
 
             server = smtplib.SMTP(self.smtp_host, self.smtp_port)
             server.starttls()

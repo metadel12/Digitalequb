@@ -1,6 +1,6 @@
 import React from 'react';
-import { Grid, MenuItem, Stack, TextField } from '@mui/material';
-import { Security as SecurityIcon } from '@mui/icons-material';
+import { Alert, Button, Grid, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Logout as LogoutIcon, Security as SecurityIcon } from '@mui/icons-material';
 import DangerZone from './DangerZone';
 import FormSection from './FormSection';
 import NotificationToggle from './NotificationToggle';
@@ -14,68 +14,104 @@ const SecuritySettings = ({
     sessions,
     loginHistory,
     onTerminateSession,
+    onRemoveSession,
     onLogoutAll,
     onDeactivate,
     onDelete,
     onExport,
 }) => (
     <Stack spacing={3}>
-        <FormSection icon={<SecurityIcon />} title="Security & Privacy" description="Password controls, sessions, privacy visibility, and login history.">
-            <Stack spacing={3}>
-                <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, md: 4 }}>
-                        <TextField fullWidth label="Current Password" type="password" value={passwordForm.current_password} onChange={(e) => setPasswordForm((prev) => ({ ...prev, current_password: e.target.value }))} />
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 4 }}>
-                        <TextField fullWidth label="New Password" type="password" value={passwordForm.new_password} onChange={(e) => setPasswordForm((prev) => ({ ...prev, new_password: e.target.value }))} />
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 4 }}>
-                        <TextField fullWidth label="Confirm Password" type="password" value={passwordForm.confirm_new_password} onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm_new_password: e.target.value }))} />
-                    </Grid>
+        {/* Password */}
+        <FormSection icon={<SecurityIcon />} title="Change Password" description="Update your account password.">
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 4 }}>
+                    <TextField fullWidth label="Current Password" type="password" value={passwordForm.current_password} onChange={(e) => setPasswordForm((p) => ({ ...p, current_password: e.target.value }))} />
                 </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                    <TextField fullWidth label="New Password" type="password" value={passwordForm.new_password} onChange={(e) => setPasswordForm((p) => ({ ...p, new_password: e.target.value }))} />
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                    <TextField fullWidth label="Confirm Password" type="password" value={passwordForm.confirm_new_password} onChange={(e) => setPasswordForm((p) => ({ ...p, confirm_new_password: e.target.value }))} />
+                </Grid>
+            </Grid>
+        </FormSection>
+
+        {/* Security toggles */}
+        <FormSection icon={<SecurityIcon />} title="Security & Privacy" description="Two-factor authentication, login alerts, and visibility controls.">
+            <Stack spacing={2}>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                    <NotificationToggle label="Two-Factor Authentication" description="Use an authenticator app and backup methods." checked={!!security.two_factor_enabled} onChange={(checked) => setSecurity((prev) => ({ ...prev, two_factor_enabled: checked }))} />
-                    <NotificationToggle label="SMS Backup" description="Allow SMS fallback for account recovery." checked={!!security.sms_backup_enabled} onChange={(checked) => setSecurity((prev) => ({ ...prev, sms_backup_enabled: checked }))} />
-                    <NotificationToggle label="Login Alerts" description="Notify me about new device logins." checked={!!security.login_alerts} onChange={(checked) => setSecurity((prev) => ({ ...prev, login_alerts: checked }))} />
+                    <NotificationToggle label="Two-Factor Authentication" description="Receive a code via email on login." checked={!!security.two_factor_enabled} onChange={(v) => setSecurity((p) => ({ ...p, two_factor_enabled: v }))} />
+                    <NotificationToggle label="Login Alerts" description="Notify me about new device logins." checked={!!security.login_alerts} onChange={(v) => setSecurity((p) => ({ ...p, login_alerts: v }))} />
                 </Stack>
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, md: 4 }}>
-                        <TextField select fullWidth label="Profile Visibility" value={security.profile_visibility || 'private'} onChange={(e) => setSecurity((prev) => ({ ...prev, profile_visibility: e.target.value }))}>
+                        <TextField select fullWidth label="Profile Visibility" value={security.profile_visibility || 'private'} onChange={(e) => setSecurity((p) => ({ ...p, profile_visibility: e.target.value }))}>
                             <MenuItem value="public">Public</MenuItem>
                             <MenuItem value="private">Private</MenuItem>
                             <MenuItem value="friends">Friends</MenuItem>
                         </TextField>
                     </Grid>
                     <Grid size={{ xs: 12, md: 4 }}>
-                        <NotificationToggle label="Show Wallet Balance" description="Allow others to see your balance." checked={!!security.show_wallet_balance} onChange={(checked) => setSecurity((prev) => ({ ...prev, show_wallet_balance: checked }))} />
+                        <NotificationToggle label="Show Wallet Balance" description="Allow others to see your balance." checked={!!security.show_wallet_balance} onChange={(v) => setSecurity((p) => ({ ...p, show_wallet_balance: v }))} />
                     </Grid>
                     <Grid size={{ xs: 12, md: 4 }}>
-                        <NotificationToggle label="Show Transaction History" description="Share transaction history on your profile." checked={!!security.show_transaction_history} onChange={(checked) => setSecurity((prev) => ({ ...prev, show_transaction_history: checked }))} />
+                        <NotificationToggle label="Show Transaction History" description="Share transaction history on profile." checked={!!security.show_transaction_history} onChange={(v) => setSecurity((p) => ({ ...p, show_transaction_history: v }))} />
                     </Grid>
                 </Grid>
             </Stack>
         </FormSection>
-        <FormSection icon={<SecurityIcon />} title="Active Sessions" description="Review and terminate device sessions remotely." actions={sessions?.length ? null : null}>
+
+        {/* Active Sessions */}
+        <FormSection
+            icon={<SecurityIcon />}
+            title="Active Sessions"
+            description={`Devices currently signed in to your account. Maximum 2 sessions allowed.`}
+            actions={
+                sessions?.length > 1 && (
+                    <Button variant="outlined" color="error" size="small" startIcon={<LogoutIcon />} onClick={onLogoutAll}>
+                        Logout All Other Sessions
+                    </Button>
+                )
+            }
+        >
             <Stack spacing={2}>
-                {sessions.map((session) => <SessionCard key={session.id} session={session} onTerminate={onTerminateSession} />)}
-                <Stack direction="row" justifyContent="flex-end">
-                    <TextField type="hidden" value="" />
-                </Stack>
+                {sessions?.length === 0 && (
+                    <Alert severity="info">No active sessions found. Sessions appear here after login.</Alert>
+                )}
+                {sessions?.map((session) => (
+                    <SessionCard key={session.id} session={session} onTerminate={onTerminateSession} onRemove={onRemoveSession} />
+                ))}
+                <Typography variant="caption" color="text.secondary">
+                    Only the 2 most recent sessions are kept. Older sessions are automatically removed on new login.
+                </Typography>
             </Stack>
         </FormSection>
-        <FormSection icon={<SecurityIcon />} title="Login History" description="Recent account activity and authentication events.">
+
+        {/* Login History */}
+        <FormSection icon={<SecurityIcon />} title="Login History" description="Recent authentication events for your account.">
             <Stack spacing={1.5}>
-                {loginHistory.map((entry) => (
-                    <Stack key={entry.id} direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+                {loginHistory?.length === 0 && (
+                    <Alert severity="info">No login history available.</Alert>
+                )}
+                {loginHistory?.map((entry) => (
+                    <Stack
+                        key={entry.id}
+                        direction={{ xs: 'column', md: 'row' }}
+                        justifyContent="space-between"
+                        sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}
+                    >
                         <Stack spacing={0.25}>
-                            <span>{entry.device_name}</span>
-                            <small>{entry.browser} on {entry.os}</small>
+                            <Typography variant="body2" fontWeight={600}>{entry.device_name}</Typography>
+                            <Typography variant="caption" color="text.secondary">{entry.browser} on {entry.os}</Typography>
                         </Stack>
-                        <small>{new Date(entry.timestamp).toLocaleString()} • {entry.ip_address} • {entry.location}</small>
+                        <Typography variant="caption" color="text.secondary" sx={{ alignSelf: { md: 'center' } }}>
+                            {new Date(entry.timestamp).toLocaleString()} · {entry.ip_address}
+                        </Typography>
                     </Stack>
                 ))}
             </Stack>
         </FormSection>
+
         <DangerZone onDeactivate={onDeactivate} onDelete={onDelete} onExport={onExport} />
     </Stack>
 );

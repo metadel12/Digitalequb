@@ -6,7 +6,7 @@ const Feedback = () => {
     const [form, setForm] = useState({ type: 'feature', message: '' });
 
     return (
-        <Box sx={{ bgcolor: '#f5f7fb', minHeight: '100vh', py: 4 }}>
+        <Box sx={{ bgcolor: 'background.default', minHeight: '100vh', py: 4 }}>
             <Container maxWidth="sm">
                 <Paper sx={{ p: 4, borderRadius: 4 }}>
                     <Stack spacing={2}>

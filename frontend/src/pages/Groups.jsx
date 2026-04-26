@@ -222,11 +222,11 @@ const normalizeApiGroup = (group, activeMap = {}, membershipMap = {}) => {
         lastActive: activeSnapshot.nextPayoutDate || group.created_at,
         avatar: null,
         coverImage: null,
-        tags: [
+        tags: Array.from(new Set([
             rules.group_type || group.frequency,
             group.frequency,
             group.status,
-        ].filter(Boolean),
+        ].filter(Boolean))),
         members: activeSnapshot.members || [],
         totalContributions: activeSnapshot.totalFund ?? ((group.contribution_amount || 0) * (group.current_members || 0)),
         completionRate: Math.round(activeSnapshot.progressPct || 0),
@@ -931,12 +931,12 @@ const Groups = () => {
     }
 
     return (
-        <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', py: 4 }}>
+        <Box sx={{ bgcolor: 'background.default', minHeight: '100vh', py: 4 }}>
             <Container maxWidth="xl">
                 {/* Header */}
                 <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                     <Box>
-                        <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
+                        <Typography variant="h4" component="h1" gutterBottom fontWeight="bold" color="text.primary">
                             My Equb Groups
                         </Typography>
                         <Typography variant="body1" color="text.secondary">

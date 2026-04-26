@@ -1,9 +1,20 @@
+import { useTheme } from '../../context/ThemeContext';
+
 export default function DashboardLayout({ header, children }) {
+    const { isDarkMode } = useTheme();
+
     return (
-        <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]">
-            <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div style={{
+            minHeight: '100vh',
+            background: isDarkMode
+                ? 'linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)'
+                : 'linear-gradient(180deg,#f8fafc 0%,#eef2ff 100%)',
+        }}>
+            <div style={{ maxWidth: 1280, margin: '0 auto', padding: '32px 24px' }}>
                 {header}
-                <div className="mt-8 space-y-8">{children}</div>
+                <div style={{ marginTop: 32, display: 'flex', flexDirection: 'column', gap: 32 }}>
+                    {children}
+                </div>
             </div>
         </div>
     );

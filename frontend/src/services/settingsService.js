@@ -1,7 +1,8 @@
 import api, { profileAPI } from './api';
+import { STORAGE_KEYS as APP_STORAGE_KEYS } from '../utils/constants';
 
 const STORAGE_KEYS = {
-    theme: 'theme',
+    theme: APP_STORAGE_KEYS.THEME,
     settings: 'settings',
     language: 'language',
     profileDraft: 'profile_draft',

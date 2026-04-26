@@ -263,8 +263,6 @@ async def get_group_detail(group_id: str, current_user=Depends(get_current_activ
     group = db["groups"].find_one({"_id": str(group_id)})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    if group.get("is_private") and not _is_admin(current_user, group) and not any(str(item.get("user_id")) == str(current_user["_id"]) for item in group.get("members", [])):
-        raise HTTPException(status_code=403, detail="Access denied")
     return _group_detail_response(group)
 
 

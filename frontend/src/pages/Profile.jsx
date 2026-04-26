@@ -589,7 +589,7 @@ function Profile() {
     }
 
     return (
-        <Box sx={{ minHeight: '100vh', bgcolor: '#f3f5fb', py: 4 }}>
+        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: 4 }}>
             <Container maxWidth="xl">
                 <Stack spacing={3}>
                     <Paper sx={{ borderRadius: 5, p: 3 }}>

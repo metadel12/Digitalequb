@@ -49,10 +49,11 @@ class BankAccountInfo(BaseModel):
 
 class UserBase(BaseModel):
     email: EmailStr
-    phone_number: str
+    phone_number: Optional[str] = None
     full_name: str
 
 class UserCreate(UserBase):
+    phone_number: str
     password: str = Field(..., min_length=8)
     confirm_password: str
     bank_account: Optional[BankAccountInfo] = None
@@ -86,6 +87,8 @@ class UserUpdate(BaseModel):
 
 class UserResponse(UserBase):
     id: str
+    email_verified: bool = False
+    phone_verified: bool = False
     role: str
     status: str
     kyc_status: str

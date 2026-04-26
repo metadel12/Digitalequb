@@ -108,7 +108,7 @@ const HelpCenter = () => {
             sx={{
                 minHeight: '100vh',
                 py: { xs: 4, md: 6 },
-                background: 'linear-gradient(180deg, #f6f8fc 0%, #eef3fb 100%)',
+                bgcolor: 'background.default',
             }}
         >
             <Container maxWidth="lg">

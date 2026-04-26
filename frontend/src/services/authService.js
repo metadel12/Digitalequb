@@ -83,6 +83,20 @@ export const resendVerification = (payload) =>
         () => ({ success: true, message: 'Verification code resent.' })
     );
 
+export const checkEmailExists = async (email) => {
+    try {
+        const res = await api.get(`/auth/check-email?email=${encodeURIComponent(email)}`);
+        return res.data;
+    } catch { return { exists: false }; }
+};
+
+export const checkPhoneExists = async (phone) => {
+    try {
+        const res = await api.get(`/auth/check-phone?phone=${encodeURIComponent(phone)}`);
+        return res.data;
+    } catch { return { exists: false }; }
+};
+
 export default {
     loginWithPassword,
     registerAccount,

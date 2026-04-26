@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 import pyotp
 from pymongo.database import Database
 
-from ..core.mongo_utils import new_id, utcnow, user_doc_to_response
+from ..core.mongo_utils import ensure_utc_datetime, new_id, utcnow, user_doc_to_response
 from ..core.security import get_password_hash, verify_password
 from ..models.user import KYCStatus, UserRole, UserStatus
 from ..schemas.user import UserCreate
@@ -21,7 +21,6 @@ SYSTEM_ADMIN_PASSWORD = "Admin@123456"
 class AuthService:
     def __init__(self, db: Database):
         self.db = db
-        self.otp_store: Dict[str, Dict[str, Any]] = {}
 
     def create_user(self, user_data: UserCreate) -> Dict[str, Any]:
         now = utcnow()
@@ -31,6 +30,8 @@ class AuthService:
             "email": user_data.email.strip().lower(),
             "phone_number": user_data.phone_number.strip(),
             "full_name": user_data.full_name.strip(),
+            "email_verified": False,
+            "phone_verified": False,
             "hashed_password": get_password_hash(user_data.password),
             "role": UserRole.USER.value,
             "is_admin": False,
@@ -46,6 +47,19 @@ class AuthService:
             "private_key_encrypted": None,
             "is_2fa_enabled": False,
             "totp_secret": None,
+            "social_logins": {},
+            "email_otp": None,
+            "phone_otp": None,
+            "security_questions": [],
+            "two_factor": {
+                "enabled": False,
+                "method": "email",
+                "email_otp": None,
+                "sms_otp": None,
+                "pending_method": None,
+                "setup_completed": False,
+                "backup_codes": [],
+            },
             "profile_picture": None,
             "date_of_birth": None,
             "address": {},
@@ -217,14 +231,19 @@ class AuthService:
 
     def generate_otp(self, user_id: str) -> str:
         otp = pyotp.random_base32()[:6]
-        self.otp_store[str(user_id)] = {"otp": otp, "expires_at": utcnow() + timedelta(minutes=5)}
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {"$set": {"two_factor.sms_otp": {"code": otp, "expires_at": utcnow() + timedelta(minutes=5), "attempts": 0}}},
+        )
         return otp
 
     def verify_otp(self, user_id: str, otp: str) -> Optional[Dict[str, Any]]:
-        data = self.otp_store.get(str(user_id))
-        if not data or data["expires_at"] < utcnow() or data["otp"] != otp:
+        user = self.get_user_by_id(user_id)
+        data = (user or {}).get("two_factor", {}).get("sms_otp") or {}
+        expires_at = ensure_utc_datetime(data.get("expires_at"))
+        if not data or not expires_at or expires_at < utcnow() or data["code"] != otp:
             return None
-        del self.otp_store[str(user_id)]
+        self.db["users"].update_one({"_id": str(user_id)}, {"$set": {"two_factor.sms_otp": None}})
         return self.get_user_by_id(user_id)
 
     async def blacklist_token(self, token: str) -> None:
@@ -255,6 +274,36 @@ class AuthService:
         if not user or not user.get("totp_secret"):
             return False
         return pyotp.TOTP(user["totp_secret"]).verify(code)
+
+    def link_social_login(self, user_id: str, provider: str, provider_user_id: str) -> None:
+        now = utcnow()
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {
+                "$set": {
+                    f"social_logins.{provider}_id": provider_user_id,
+                    "updated_at": now,
+                }
+            },
+        )
+
+    def set_security_questions(self, user_id: str, questions: list[dict[str, str]]) -> None:
+        now = utcnow()
+        prepared = [
+            {
+                "question": item["question"].strip(),
+                "answer_hash": get_password_hash(item["answer"].strip().lower()),
+                "created_at": now,
+            }
+            for item in questions
+        ]
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {"$set": {"security_questions": prepared, "updated_at": now}},
+        )
+
+    def generate_backup_codes(self, count: int = 10) -> list[str]:
+        return [f"{new_id().replace('-', '')[:4]}-{new_id().replace('-', '')[:4]}" for _ in range(count)]
 
 
 def user_to_response(user: Dict[str, Any]) -> Dict[str, Any]:

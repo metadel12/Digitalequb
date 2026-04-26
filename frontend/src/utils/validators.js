@@ -1,8 +1,8 @@
-export const emailPattern = /^\S+@\S+\.\S+$/;
+export const emailPattern = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
 export const namePattern = /^[A-Za-z]+(?:[ '-][A-Za-z]+)*$/;
 const phonePattern = /^[0-9]{9,15}$/;
 const MIN_BIRTH_YEAR = 1900;
-const ALLOWED_EMAIL_DOMAINS = ['gmail.com', 'outlook.com', 'yahoo.com', 'hotmail.com', 'icloud.com'];
+const ALLOWED_EMAIL_DOMAINS = ['gmail.com', 'outlook.com', 'yahoo.com', 'hotmail.com', 'icloud.com', 'protonmail.com', 'icloud.com', 'me.com', 'live.com', 'msn.com', 'ymail.com'];
 
 export function validateAdult(dateValue) {
     if (!dateValue) return 'Date of birth is required';
@@ -32,21 +32,17 @@ export function validateFullName(value, label = 'Name') {
 
 export function validateEmail(value) {
     if (!value?.trim()) return 'Email address is required';
-    return emailPattern.test(value.trim()) ? true : 'Please enter a valid email address (e.g., name@example.com)';
-}
-
-export function validatePhone(countryCode, phoneNumber) {
-    if (!countryCode) return 'Please select country code';
-    if (!phoneNumber) return 'Phone number is required';
-    if (!phonePattern.test(phoneNumber)) return 'Phone number must be 9-15 digits';
+    if (!emailPattern.test(value.trim())) return 'Please enter a valid email address (e.g., name@gmail.com)';
+    const domain = value.trim().split('@')[1]?.toLowerCase();
+    if (!ALLOWED_EMAIL_DOMAINS.includes(domain)) return `Email must be from a supported provider (e.g., Gmail, Outlook, Yahoo)`;
     return true;
 }
 
-export function validateEmailDomain(value, whitelist = ALLOWED_EMAIL_DOMAINS) {
-    if (!value?.trim()) return true;
-    const domain = value.trim().split('@')[1]?.toLowerCase();
-    if (!domain) return 'Please enter a valid email address (e.g., name@example.com)';
-    return whitelist.includes(domain) ? true : 'Email domain not allowed';
+export function validatePhone(countryCode, phoneNumber) {
+    if (!countryCode) return 'Please select a country code';
+    if (!phoneNumber?.trim()) return 'Phone number is required';
+    if (!/^[0-9]{9,15}$/.test(phoneNumber)) return 'Phone number must be 9–15 digits (numbers only)';
+    return true;
 }
 
 export function validatePassword(value) {
@@ -64,6 +60,14 @@ export function validatePassword(value) {
 export function validatePasswordMatch(password, confirmPassword) {
     if (!confirmPassword) return 'Confirm password is required';
     return password === confirmPassword ? true : 'Passwords do not match';
+}
+
+export function validateCBENameMatchesFullName(cbeName, firstName, lastName) {
+    if (!cbeName?.trim()) return 'CBE Account Name is required';
+    const full = `${firstName} ${lastName}`.trim().toLowerCase().replace(/\s+/g, ' ');
+    const cbe = cbeName.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (cbe !== full) return 'CBE Account Name must match your registered full name (First name + Last name)';
+    return true;
 }
 
 export function validateRequired(value, label) {

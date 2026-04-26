@@ -27,6 +27,15 @@ def normalize_datetime(value: Any) -> Optional[datetime]:
     return None
 
 
+def ensure_utc_datetime(value: Any) -> Optional[datetime]:
+    parsed = normalize_datetime(value)
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def enum_value(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
 
@@ -35,8 +44,10 @@ def user_doc_to_response(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": doc["_id"],
         "email": doc["email"],
-        "phone_number": doc["phone_number"],
+        "phone_number": doc.get("phone_number"),
         "full_name": doc["full_name"],
+        "email_verified": bool(doc.get("email_verified", False)),
+        "phone_verified": bool(doc.get("phone_verified", False)),
         "role": enum_value(doc.get("role", UserRole.USER.value)),
         "status": enum_value(doc.get("status", UserStatus.PENDING.value)),
         "kyc_status": enum_value(doc.get("kyc_status", KYCStatus.NOT_SUBMITTED.value)),

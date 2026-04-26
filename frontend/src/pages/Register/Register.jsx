@@ -23,11 +23,11 @@ function Register() {
             <RegisterForm
                 onBackToLogin={() => navigate('/login')}
                 onSuccess={(email) => {
-                    navigate('/login', {
+                    navigate(`/verify-email?email=${encodeURIComponent(email)}`, {
                         replace: true,
                         state: {
                             registeredEmail: email,
-                            message: 'Registration successful. Please sign in to continue.',
+                            message: 'Registration successful. Enter the code we sent to your email.',
                         },
                     });
                 }}

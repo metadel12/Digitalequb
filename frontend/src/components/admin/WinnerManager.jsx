@@ -109,12 +109,12 @@ const WinnerManager = () => {
         }, 100);
 
         try {
-            const response = await api.post('/admin/select-winner', { group_id: group.group_id });
+            const response = await api.post('/admin/groups/select-winner', { group_id: group.group_id });
             window.clearInterval(interval);
             setTimeout(async () => {
                 setRandomizing(false);
-                setWinnerResult(response.data?.data || null);
-                enqueueSnackbar(`Winner selected: ${response.data?.data?.winner?.full_name || 'Unknown winner'}`, { variant: 'success' });
+                setWinnerResult(response.data || null);
+                enqueueSnackbar(`Winner selected: ${response.data?.winner?.full_name || 'Unknown winner'}`, { variant: 'success' });
                 await fetchReadyGroups();
             }, 900);
         } catch (error) {
@@ -243,7 +243,7 @@ const WinnerManager = () => {
                         <Typography variant="h5" fontWeight={900}>{winnerResult?.winner?.full_name}</Typography>
                         <Typography color="text.secondary">Round {winnerResult?.round_number}</Typography>
                         <Alert severity="success">
-                            {Number(winnerResult?.winner_amount || 0).toLocaleString()} ETB sent to the winner wallet.
+                            {Number(winnerResult?.winner_amount || 0).toLocaleString()} ETB processed for the winner.
                         </Alert>
                         <Grid container spacing={2}>
                             <Grid item xs={6}>
@@ -266,7 +266,7 @@ const WinnerManager = () => {
                             </Grid>
                         </Grid>
                         <Alert severity="info">
-                            Next round is {winnerResult?.next_round}. The winner does not pay for the round they just won.
+                            Winner notifications reached {winnerResult?.notifications?.delivered_count || 0} of {winnerResult?.notifications?.member_count || 0} group members. Next round is {winnerResult?.next_round}.
                         </Alert>
                     </Stack>
                 </DialogContent>

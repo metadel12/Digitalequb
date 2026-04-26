@@ -12,48 +12,17 @@ import {
     Alert,
     Snackbar,
     Typography,
-    LinearProgress,
     Backdrop,
-    Fade,
     Chip,
     Avatar,
     Stack
 } from '@mui/material';
 import {
-    Lock as LockIcon,
-    Verified as VerifiedIcon,
-    Warning as WarningIcon,
-    Error as ErrorIcon,
     Security as SecurityIcon,
-    Schedule as ScheduleIcon,
-    Refresh as RefreshIcon,
-    Login as LoginIcon,
-    Logout as LogoutIcon,
-    PersonAdd as PersonAddIcon,
-    Email as EmailIcon,
-    Phone as PhoneIcon,
-    LocationOn as LocationIcon,
-    Fingerprint as FingerprintIcon
 } from '@mui/icons-material';
 import { styled, alpha } from '@mui/material/styles';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import api, { testBackendConnection } from '../services/api';
-
-// Styled components
-const LoadingOverlay = styled(Box)(({ theme }) => ({
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: alpha(theme.palette.background.paper, 0.9),
-    zIndex: 9999,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'column',
-    gap: theme.spacing(2),
-}));
 
 const TwoFactorDialog = styled(Dialog)(({ theme }) => ({
     '& .MuiDialog-paper': {
@@ -94,6 +63,8 @@ export function AuthProvider({ children }) {
     const [twoFactorOtp, setTwoFactorOtp] = useState('');
     const [twoFactorLoading, setTwoFactorLoading] = useState(false);
     const [showTwoFactorDialog, setShowTwoFactorDialog] = useState(false);
+    const [twoFactorSessionToken, setTwoFactorSessionToken] = useState(null);
+    const [twoFactorMethod, setTwoFactorMethod] = useState('sms');
     const [sessionExpiry, setSessionExpiry] = useState(null);
     const [sessionWarning, setSessionWarning] = useState(false);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -102,38 +73,23 @@ export function AuthProvider({ children }) {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Check authentication on mount
     useEffect(() => {
         checkAuth();
-
-        // Set up token refresh interval
-        const refreshInterval = setInterval(() => {
-            refreshToken();
-        }, 4 * 60 * 1000); // Refresh every 4 minutes
-
+        const refreshInterval = setInterval(() => { refreshToken(); }, 4 * 60 * 1000);
         return () => clearInterval(refreshInterval);
     }, []);
 
-    // Session expiry checker
     useEffect(() => {
-        if (sessionExpiry) {
-            const checkSession = setInterval(() => {
-                const now = new Date();
-                const expiry = new Date(sessionExpiry);
-                const timeLeft = expiry - now;
-
-                if (timeLeft <= 300000 && timeLeft > 0 && !sessionWarning) { // 5 minutes warning
-                    setSessionWarning(true);
-                    showSnackbar(`Your session will expire in ${Math.ceil(timeLeft / 60000)} minutes.`, 'warning');
-                }
-
-                if (timeLeft <= 0) {
-                    handleSessionExpired();
-                }
-            }, 60000); // Check every minute
-
-            return () => clearInterval(checkSession);
-        }
+        if (!sessionExpiry) return;
+        const checkSession = setInterval(() => {
+            const timeLeft = new Date(sessionExpiry) - new Date();
+            if (timeLeft <= 300000 && timeLeft > 0 && !sessionWarning) {
+                setSessionWarning(true);
+                showSnackbar(`Your session will expire in ${Math.ceil(timeLeft / 60000)} minutes.`, 'warning');
+            }
+            if (timeLeft <= 0) handleSessionExpired();
+        }, 60000);
+        return () => clearInterval(checkSession);
     }, [sessionExpiry, sessionWarning]);
 
     const showSnackbar = (message, severity = 'success') => {
@@ -154,27 +110,21 @@ export function AuthProvider({ children }) {
     const checkAuth = async () => {
         try {
             const token = localStorage.getItem('access_token');
-            const refreshToken = localStorage.getItem('refresh_token');
+            const storedRefreshToken = localStorage.getItem('refresh_token');
             const expiry = localStorage.getItem('session_expiry');
-
-            if (token && refreshToken) {
+            if (token && storedRefreshToken) {
                 const online = await ensureBackendOnline();
-                if (!online) {
-                    return;
-                }
-                // Check if session is expired
+                if (!online) return;
                 if (expiry && new Date(expiry) > new Date()) {
                     const response = await api.get('/auth/me');
                     setUser(response.data);
                     setSessionExpiry(expiry);
                 } else {
-                    // Try to refresh token
                     await refreshToken();
                 }
             }
-        } catch (error) {
-            console.error('Auth check failed:', error);
-            // Clear invalid tokens
+        } catch (err) {
+            console.error('Auth check failed:', err);
             localStorage.removeItem('access_token');
             localStorage.removeItem('refresh_token');
             localStorage.removeItem('session_expiry');
@@ -186,27 +136,63 @@ export function AuthProvider({ children }) {
 
     const refreshToken = async () => {
         try {
-            const refreshToken = localStorage.getItem('refresh_token');
-            if (!refreshToken) return;
-
-            const response = await api.post('/auth/refresh', { refresh_token: refreshToken });
-
+            const token = localStorage.getItem('refresh_token');
+            if (!token) return;
+            const response = await api.post('/auth/refresh', { refresh_token: token });
             if (response.data.access_token) {
                 localStorage.setItem('access_token', response.data.access_token);
-                const newExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+                const newExpiry = new Date(Date.now() + 30 * 60 * 1000);
                 localStorage.setItem('session_expiry', newExpiry.toISOString());
                 setSessionExpiry(newExpiry);
-
-                // Update user data
                 const userResponse = await api.get('/auth/me');
                 setUser(userResponse.data);
             }
-        } catch (error) {
-            console.error('Token refresh failed:', error);
-            // If refresh fails, logout
+        } catch (err) {
+            console.error('Token refresh failed:', err);
             logout();
         }
     };
+
+    const finishLogin = async (responseData, rememberMe = false) => {
+        localStorage.setItem('access_token', responseData.access_token);
+        localStorage.setItem('refresh_token', responseData.refresh_token);
+        const expiryDuration = rememberMe ? 7 * 24 * 60 * 60 * 1000 : 30 * 60 * 1000;
+        const expiry = new Date(Date.now() + expiryDuration);
+        localStorage.setItem('session_expiry', expiry.toISOString());
+        setSessionExpiry(expiry);
+        setUser(responseData.user);
+        const displayName = responseData.user?.full_name || responseData.user?.name || responseData.user?.email;
+        if (displayName) showSnackbar(`Welcome back, ${displayName}!`, 'success');
+        // New social users with no phone → always go to complete-profile first
+        const hasPhone = responseData.user?.phone_number && String(responseData.user.phone_number).trim() !== '';
+        if (!hasPhone) {
+            navigate('/complete-profile', { replace: true });
+            return;
+        }
+        try {
+            const onboardingResponse = await api.get('/auth/onboarding-status');
+            if (!onboardingResponse.data?.complete) {
+                navigate('/auth/onboarding', { replace: true });
+                return;
+            }
+        } catch (onboardingError) {
+            console.warn('Failed to load onboarding status after login:', onboardingError);
+        }
+        const from = location.state?.from?.pathname || '/dashboard';
+        navigate(from, { replace: true });
+    };
+
+    const handleTwoFactorChallenge = (responseData) => {
+        setTwoFactorRequired(true);
+        setTwoFactorUserId(responseData.user_id);
+        setTwoFactorSessionToken(responseData.session_token || null);
+        setTwoFactorMethod(responseData.method || 'sms');
+        setShowTwoFactorDialog(true);
+    };
+
+    const startTwoFactorChallenge = useCallback((responseData) => {
+        handleTwoFactorChallenge(responseData);
+    }, []);
 
     const handleSessionExpired = () => {
         showSnackbar('Your session has expired. Please login again.', 'error');
@@ -217,62 +203,34 @@ export function AuthProvider({ children }) {
     const login = async (email, password, rememberMe = false) => {
         setLoading(true);
         setError(null);
-
         try {
             const online = await ensureBackendOnline();
-            if (!online) {
-                return { error: 'Cannot connect to server on port 8001. Start the backend and try again.' };
-            }
+            if (!online) return { error: 'Cannot connect to server on port 8001. Start the backend and try again.' };
             const formData = new URLSearchParams();
             formData.append('username', email);
             formData.append('password', password);
             const response = await api.post('/auth/login', formData, {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             });
-
             if (response.data.requires_2fa) {
-                setTwoFactorRequired(true);
-                setTwoFactorUserId(response.data.user_id);
-                setShowTwoFactorDialog(true);
+                handleTwoFactorChallenge(response.data);
                 setLoading(false);
-                return { requires_2fa: true, user_id: response.data.user_id };
+                return {
+                    requires_2fa: true,
+                    user_id: response.data.user_id,
+                    session_token: response.data.session_token,
+                    method: response.data.method,
+                };
             }
-
-            // Store tokens
-            localStorage.setItem('access_token', response.data.access_token);
-            localStorage.setItem('refresh_token', response.data.refresh_token);
-
-            // Set session expiry (30 minutes default, longer if remember me)
-            const expiryDuration = rememberMe ? 7 * 24 * 60 * 60 * 1000 : 30 * 60 * 1000;
-            const expiry = new Date(Date.now() + expiryDuration);
-            localStorage.setItem('session_expiry', expiry.toISOString());
-            setSessionExpiry(expiry);
-
-            // Set user
-            setUser(response.data.user);
-
-            // Log login attempt
-            logAuthEvent('login_success', { email });
-
-            const displayName = response.data.user.full_name || response.data.user.name || response.data.user.email;
-            showSnackbar(`Welcome back, ${displayName}!`, 'success');
-
-            // Redirect to intended page or dashboard
-            const from = location.state?.from?.pathname || '/dashboard';
-            navigate(from, { replace: true });
-
+            await finishLogin(response.data, rememberMe);
             return { success: true };
-        } catch (error) {
+        } catch (err) {
             const fallbackMessage = backendOnline
                 ? 'Login failed. Please check your credentials.'
                 : 'Cannot connect to server on port 8001. Start the backend and try again.';
-            const errorMessage = getApiErrorMessage(error, fallbackMessage);
+            const errorMessage = getApiErrorMessage(err, fallbackMessage);
             setError(errorMessage);
             showSnackbar(errorMessage, 'error');
-
-            // Log failed attempt
-            logAuthEvent('login_failed', { email, error: errorMessage });
-
             return { error: errorMessage };
         } finally {
             setLoading(false);
@@ -281,30 +239,18 @@ export function AuthProvider({ children }) {
 
     const verify2FA = async (userId, otp) => {
         setTwoFactorLoading(true);
-
         try {
-            const response = await api.post('/auth/verify-2fa', { user_id: userId, otp });
-
-            localStorage.setItem('access_token', response.data.access_token);
-            localStorage.setItem('refresh_token', response.data.refresh_token);
-
-            const expiry = new Date(Date.now() + 30 * 60 * 1000);
-            localStorage.setItem('session_expiry', expiry.toISOString());
-            setSessionExpiry(expiry);
-
-            const userResponse = await api.get('/auth/me');
-            setUser(userResponse.data);
-
+            const response = await api.post('/auth/verify-2fa', { user_id: userId, otp, session_token: twoFactorSessionToken });
+            await finishLogin(response.data, false);
             showSnackbar('2FA verified successfully!', 'success');
             setShowTwoFactorDialog(false);
             setTwoFactorOtp('');
             setTwoFactorRequired(false);
-
-            navigate('/dashboard');
-
+            setTwoFactorSessionToken(null);
+            setTwoFactorMethod('sms');
             return { success: true };
-        } catch (error) {
-            const errorMessage = getApiErrorMessage(error, 'Invalid OTP. Please try again.');
+        } catch (err) {
+            const errorMessage = getApiErrorMessage(err, 'Invalid OTP. Please try again.');
             showSnackbar(errorMessage, 'error');
             return { error: errorMessage };
         } finally {
@@ -315,59 +261,78 @@ export function AuthProvider({ children }) {
     const register = async (userData) => {
         setLoading(true);
         setError(null);
-
         try {
             const online = await ensureBackendOnline();
-            if (!online) {
-                return { error: 'Cannot connect to server on port 8001. Start the backend and try again.' };
-            }
-            const response = await api.post('/auth/register', userData);
-
-            showSnackbar('Registration successful! Please check your email to verify your account.', 'success');
-
-            // Log registration
-            logAuthEvent('registration_success', { email: userData.email });
-
-            navigate('/login', { state: { registered: true } });
-
+            if (!online) return { error: 'Cannot connect to server on port 8001. Start the backend and try again.' };
+            await api.post('/auth/register', userData);
+            showSnackbar('Registration successful! Check your email for the verification code.', 'success');
             return { success: true };
-        } catch (error) {
-            const errorMessage = getApiErrorMessage(error, 'Registration failed. Please try again.');
+        } catch (err) {
+            const errorMessage = getApiErrorMessage(err, 'Registration failed. Please try again.');
             setError(errorMessage);
             showSnackbar(errorMessage, 'error');
-
-            logAuthEvent('registration_failed', { email: userData.email, error: errorMessage });
-
             return { error: errorMessage };
         } finally {
             setLoading(false);
         }
     };
 
+    // Stable reference — never changes between renders
+    const startSocialLogin = useCallback((provider) => {
+        const base = (import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1').replace(/\/api\/v1\/?$/, '');
+        window.location.href = `${base}/api/v1/auth/${provider}/url`;
+    }, []);
+
+    const completeSocialLogin = useCallback(async (sessionToken, rememberMe = true) => {
+        setError(null);
+        try {
+            const response = await api.post('/auth/oauth/complete', { session_token: sessionToken });
+            if (response.data.requires_2fa) {
+                handleTwoFactorChallenge(response.data);
+                return { requires_2fa: true };
+            }
+            // Always go to /complete-profile for social logins — let finishLogin decide
+            const user = response.data.user;
+            const hasPhone = user?.phone_number && String(user.phone_number).trim() !== '';
+            localStorage.setItem('access_token', response.data.access_token);
+            localStorage.setItem('refresh_token', response.data.refresh_token);
+            const expiry = new Date(Date.now() + (rememberMe ? 7 * 24 * 60 * 60 * 1000 : 30 * 60 * 1000));
+            localStorage.setItem('session_expiry', expiry.toISOString());
+            setSessionExpiry(expiry);
+            setUser(user);
+            const displayName = user?.full_name || user?.name || user?.email;
+            if (displayName) showSnackbar(`Welcome, ${displayName}!`, 'success');
+            if (!hasPhone) {
+                navigate('/complete-profile', { replace: true });
+            } else {
+                navigate('/dashboard', { replace: true });
+            }
+            return { success: true };
+        } catch (err) {
+            const errorMessage = getApiErrorMessage(err, 'Social login failed. Please try again.');
+            setError(errorMessage);
+            showSnackbar(errorMessage, 'error');
+            return { error: errorMessage };
+        }
+    }, [navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
     useEffect(() => {
         const handleBackendOffline = () => {
             setBackendOnline(false);
             setError('Cannot connect to server on port 8001. Start the backend and try again.');
         };
-
         window.addEventListener('backend-offline', handleBackendOffline);
         return () => window.removeEventListener('backend-offline', handleBackendOffline);
     }, []);
 
     const logout = async () => {
         setLoading(true);
-
         try {
             const token = localStorage.getItem('access_token');
-            if (token) {
-                await api.post('/auth/logout');
-            }
-
-            logAuthEvent('logout', { userId: user?.id });
-        } catch (error) {
-            console.error('Logout error:', error);
+            if (token) await api.post('/auth/logout');
+        } catch (err) {
+            console.error('Logout error:', err);
         } finally {
-            // Clear all stored data
             localStorage.removeItem('access_token');
             localStorage.removeItem('refresh_token');
             localStorage.removeItem('session_expiry');
@@ -376,76 +341,66 @@ export function AuthProvider({ children }) {
             setError(null);
             setTwoFactorRequired(false);
             setTwoFactorUserId(null);
+            setTwoFactorSessionToken(null);
+            setTwoFactorMethod('sms');
             setLoading(false);
-
             showSnackbar('Logged out successfully', 'info');
             navigate('/login');
         }
     };
 
-    const logAuthEvent = (eventType, data = {}) => {
-        // Send to analytics service
-        console.log('Auth event:', eventType, data);
-        // In production, send to your analytics service
-    };
-
     const updateUser = async (userData) => {
         try {
-            // API call to update user
             setUser(prev => ({ ...prev, ...userData }));
             showSnackbar('Profile updated successfully', 'success');
             return { success: true };
-        } catch (error) {
+        } catch (err) {
             showSnackbar('Failed to update profile', 'error');
-            return { error: error.message };
+            return { error: err.message };
         }
     };
 
     const changePassword = async (currentPassword, newPassword) => {
         try {
-            // API call to change password
             showSnackbar('Password changed successfully', 'success');
             return { success: true };
-        } catch (error) {
+        } catch (err) {
             showSnackbar('Failed to change password', 'error');
-            return { error: error.message };
+            return { error: err.message };
         }
     };
 
     const enableTwoFactor = async () => {
         try {
-            // API call to enable 2FA
             showSnackbar('Two-factor authentication enabled', 'success');
             setUser(prev => ({ ...prev, twoFactorEnabled: true }));
             return { success: true };
-        } catch (error) {
+        } catch (err) {
             showSnackbar('Failed to enable 2FA', 'error');
-            return { error: error.message };
+            return { error: err.message };
         }
     };
 
     const disableTwoFactor = async () => {
         try {
-            // API call to disable 2FA
             showSnackbar('Two-factor authentication disabled', 'info');
             setUser(prev => ({ ...prev, twoFactorEnabled: false }));
             return { success: true };
-        } catch (error) {
+        } catch (err) {
             showSnackbar('Failed to disable 2FA', 'error');
-            return { error: error.message };
+            return { error: err.message };
         }
     };
 
     const hasRole = useCallback((roles) => {
         const normalizedUserRole = normalizeRole(user?.role || user?.roles?.[0]);
-        const normalizedRoles = (roles || []).map(normalizeRole);
-        return normalizedRoles.includes(normalizedUserRole);
+        return (roles || []).map(normalizeRole).includes(normalizedUserRole);
     }, [user]);
 
     const hasPermission = useCallback((permissions) => {
         if (!permissions?.length) return true;
         const userPermissions = Array.isArray(user?.permissions) ? user.permissions : [];
-        return permissions.every((permission) => userPermissions.includes(permission));
+        return permissions.every((p) => userPermissions.includes(p));
     }, [user]);
 
     const value = useMemo(() => ({
@@ -458,6 +413,9 @@ export function AuthProvider({ children }) {
         login,
         verify2FA,
         register,
+        startSocialLogin,
+        completeSocialLogin,
+        startTwoFactorChallenge,
         logout,
         updateUser,
         changePassword,
@@ -467,27 +425,13 @@ export function AuthProvider({ children }) {
         hasRole,
         hasPermission,
         twoFactorRequired,
-        setTwoFactorRequired
-    }), [user, loading, initializing, error, twoFactorRequired, backendOnline, hasRole, hasPermission]);
+        setTwoFactorRequired,
+    }), [user, loading, initializing, error, twoFactorRequired, backendOnline, hasRole, hasPermission, startSocialLogin, completeSocialLogin, startTwoFactorChallenge]);
 
-    // Loading screen while initializing
     if (initializing) {
         return (
-            <Box
-                sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minHeight: '100vh',
-                    bgcolor: 'background.default'
-                }}
-            >
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.5 }}
-                >
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', bgcolor: 'background.default' }}>
+                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }}>
                     <CircularProgress size={60} thickness={4} />
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
                         Loading your session...
@@ -501,18 +445,12 @@ export function AuthProvider({ children }) {
         <AuthContext.Provider value={value}>
             {children}
 
-            {/* 2FA Dialog */}
-            <TwoFactorDialog
-                open={showTwoFactorDialog}
-                onClose={() => setShowTwoFactorDialog(false)}
-                maxWidth="xs"
-                fullWidth
-            >
+            <TwoFactorDialog open={showTwoFactorDialog} onClose={() => setShowTwoFactorDialog(false)} maxWidth="xs" fullWidth>
                 <DialogTitle sx={{ textAlign: 'center' }}>
                     <SecurityIcon sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
                     <Typography variant="h6">Two-Factor Authentication</Typography>
                     <Typography variant="body2" color="text.secondary">
-                        Enter the 6-digit code from your authenticator app
+                        Enter the 6-digit code from your {twoFactorMethod === 'google_authenticator' ? 'authenticator app' : twoFactorMethod}
                     </Typography>
                 </DialogTitle>
                 <DialogContent>
@@ -546,31 +484,19 @@ export function AuthProvider({ children }) {
                     >
                         {twoFactorLoading ? <CircularProgress size={24} /> : 'Verify'}
                     </Button>
-                    <Button
-                        variant="text"
-                        onClick={() => {
-                            setShowTwoFactorDialog(false);
-                            setTwoFactorOtp('');
-                            navigate('/login');
-                        }}
-                    >
+                    <Button variant="text" onClick={() => { setShowTwoFactorDialog(false); setTwoFactorOtp(''); navigate('/login'); }}>
                         Cancel
                     </Button>
                 </DialogActions>
             </TwoFactorDialog>
 
-            {/* Loading Overlay */}
-            <Backdrop
-                sx={{ zIndex: 9999, color: '#fff' }}
-                open={loading && !initializing}
-            >
+            <Backdrop sx={{ zIndex: 9999, color: '#fff' }} open={loading && !initializing}>
                 <Box sx={{ textAlign: 'center' }}>
                     <CircularProgress color="inherit" />
                     <Typography sx={{ mt: 2 }}>Processing...</Typography>
                 </Box>
             </Backdrop>
 
-            {/* Session Warning Snackbar */}
             <Snackbar
                 open={snackbar.open}
                 autoHideDuration={6000}
@@ -597,54 +523,38 @@ export function AuthProvider({ children }) {
 
 export const useAuth = () => {
     const context = useContext(AuthContext);
-    if (!context) {
-        throw new Error('useAuth must be used within AuthProvider');
-    }
+    if (!context) throw new Error('useAuth must be used within AuthProvider');
     return context;
 };
 
-// Helper hooks for common auth checks
 export const useRequireAuth = (redirectTo = '/login') => {
     const { isAuthenticated, loading } = useAuth();
     const navigate = useNavigate();
-
     useEffect(() => {
-        if (!loading && !isAuthenticated) {
-            navigate(redirectTo);
-        }
+        if (!loading && !isAuthenticated) navigate(redirectTo);
     }, [isAuthenticated, loading, navigate, redirectTo]);
-
     return { isAuthenticated, loading };
 };
 
 export const useRequireRole = (roles, redirectTo = '/dashboard') => {
     const { user, isAuthenticated, loading } = useAuth();
     const navigate = useNavigate();
-
     useEffect(() => {
-        if (!loading && (!isAuthenticated || !roles.includes(user?.role))) {
-            navigate(redirectTo);
-        }
+        if (!loading && (!isAuthenticated || !roles.includes(user?.role))) navigate(redirectTo);
     }, [isAuthenticated, user, roles, loading, navigate, redirectTo]);
-
     return { user, isAuthenticated, loading, hasRole: roles.includes(user?.role) };
 };
 
 export const useRequirePermission = (permissions, redirectTo = '/dashboard') => {
     const { user, isAuthenticated, loading } = useAuth();
     const navigate = useNavigate();
-
     const hasPermissions = useMemo(() => {
         if (!user?.permissions) return false;
         return permissions.every(p => user.permissions.includes(p));
     }, [user, permissions]);
-
     useEffect(() => {
-        if (!loading && (!isAuthenticated || !hasPermissions)) {
-            navigate(redirectTo);
-        }
+        if (!loading && (!isAuthenticated || !hasPermissions)) navigate(redirectTo);
     }, [isAuthenticated, hasPermissions, loading, navigate, redirectTo]);
-
     return { user, isAuthenticated, loading, hasPermissions };
 };
 

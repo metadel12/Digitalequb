@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Any, Dict, List, Optional
 
@@ -10,6 +11,7 @@ from .cbe_service import CommercialBankOfEthiopiaService
 from .wallet_service import SYSTEM_PAYOUT_RATIO, WINNER_PAYOUT_RATIO, WalletService
 
 DEFAULT_SYSTEM_WALLET_LABEL = "DigiEqub Earnings Wallet"
+logger = logging.getLogger(__name__)
 
 
 class WinnerService:
@@ -317,6 +319,15 @@ class WinnerService:
             float(winner_amount),
             group,
         )
+        notification_summary = self.notify_group_winner_announcement(
+            group=group,
+            round_number=round_number,
+            winner_record=winner_record,
+            winner_user=winner_user or {},
+            winner_amount=float(winner_amount),
+            total_collected=total_collected,
+            system_fee=float(system_fee),
+        )
 
         self._sync_user_wallet_snapshot(str(winner_user_id))
         if admin_user_id:
@@ -341,6 +352,7 @@ class WinnerService:
             "transaction_id": transfer.get("transaction_id"),
             "next_round": next_round,
             "round_number": round_number,
+            "notifications": notification_summary,
         }
 
     def select_weekly_winner(self, group_id: str, method: str = "random") -> Dict[str, Any]:
@@ -414,6 +426,175 @@ class WinnerService:
         message = f"Congratulations {winner.get('full_name', 'winner')}! You won {amount:,.0f} ETB from {group.get('name', 'your group')}."
         if phone:
             print(f"SMS to {phone}: {message}")
+
+    def notify_group_winner_announcement(
+        self,
+        *,
+        group: Dict[str, Any],
+        round_number: int,
+        winner_record: Dict[str, Any],
+        winner_user: Dict[str, Any],
+        winner_amount: float,
+        total_collected: float,
+        system_fee: float,
+    ) -> Dict[str, Any]:
+        members = list(group.get("members") or [])
+        delivered_count = 0
+        recipients: List[Dict[str, Any]] = []
+        announcement_id = f"announce-{group.get('_id')}-{round_number}"
+
+        for member in members:
+            member_user = self.db["users"].find_one({"_id": str(member.get("user_id"))}) or {}
+            member_id = str(member.get("user_id"))
+            is_winner = member_id == str(winner_record.get("winner_user_id"))
+
+            sms_message = self._build_sms_message(
+                is_winner=is_winner,
+                member_name=member_user.get("full_name", member.get("full_name", "Member")),
+                winner_name=winner_record.get("winner_name", "Winner"),
+                winner_amount=winner_amount,
+                group_name=group.get("name", "your group"),
+                round_number=round_number,
+                contribution_amount=float(group.get("contribution_amount") or 0),
+                total_collected=total_collected,
+                bank_account=(member_user.get("bank_account") or {}).get("account_number"),
+            )
+            email_subject, email_body = self._build_email_message(
+                is_winner=is_winner,
+                member_name=member_user.get("full_name", member.get("full_name", "Member")),
+                winner_name=winner_record.get("winner_name", "Winner"),
+                winner_amount=winner_amount,
+                group_name=group.get("name", "your group"),
+                round_number=round_number,
+                contribution_amount=float(group.get("contribution_amount") or 0),
+                total_collected=total_collected,
+                system_fee=system_fee,
+                bank_account=(winner_user.get("bank_account") or {}).get("account_number"),
+            )
+
+            sms_sent = bool(member_user.get("phone_number"))
+            email_sent = bool(member_user.get("email"))
+            in_app_sent = True
+
+            self.db["notifications"].insert_one(
+                {
+                    "_id": f"notif-winner-{member_id}-{round_number}",
+                    "user_id": member_id,
+                    "title": "You Won This Round" if is_winner else "Winner Announcement",
+                    "message": sms_message,
+                    "type": "winner_announcement",
+                    "read": False,
+                    "delivered": True,
+                    "group_id": str(group.get("_id")),
+                    "round_number": round_number,
+                    "created_at": utcnow(),
+                    "updated_at": utcnow(),
+                }
+            )
+
+            recipients.append(
+                {
+                    "user_id": member_id,
+                    "user_name": member_user.get("full_name", member.get("full_name", "Member")),
+                    "type": "winner" if is_winner else "member",
+                    "phone_number": member_user.get("phone_number"),
+                    "email": member_user.get("email"),
+                    "sms_sent": sms_sent,
+                    "email_sent": email_sent,
+                    "in_app_sent": in_app_sent,
+                }
+            )
+            if sms_sent or email_sent or in_app_sent:
+                delivered_count += 1
+            logger.info("Winner announcement queued for %s in group %s", member_id, group.get("_id"))
+
+        summary = {
+            "_id": announcement_id,
+            "group_id": str(group.get("_id")),
+            "group_name": group.get("name"),
+            "round_number": round_number,
+            "winner_user_id": str(winner_record.get("winner_user_id")),
+            "winner_name": winner_record.get("winner_name"),
+            "winner_amount": winner_amount,
+            "total_collected": total_collected,
+            "platform_fee": system_fee,
+            "announced_at": utcnow(),
+            "notifications_sent": {
+                "sms": any(item["sms_sent"] for item in recipients),
+                "email": any(item["email_sent"] for item in recipients),
+                "in_app": True,
+                "member_count": len(recipients),
+                "delivered_count": delivered_count,
+            },
+            "recipients": recipients,
+        }
+        self.db["winner_announcements"].replace_one(
+            {"_id": announcement_id},
+            summary,
+            upsert=True,
+        )
+        self.db["winner_records"].update_one(
+            {"_id": winner_record["_id"]},
+            {"$set": {"announcement_id": announcement_id, "announcement_summary": summary["notifications_sent"], "updated_at": utcnow()}},
+        )
+        return summary["notifications_sent"]
+
+    def _build_sms_message(
+        self,
+        *,
+        is_winner: bool,
+        member_name: str,
+        winner_name: str,
+        winner_amount: float,
+        group_name: str,
+        round_number: int,
+        contribution_amount: float,
+        total_collected: float,
+        bank_account: Optional[str],
+    ) -> str:
+        if is_winner:
+            bank_suffix = f" Your CBE account {bank_account} has been credited." if bank_account else ""
+            return (
+                f"Congratulations {member_name}! You won {winner_amount:,.0f} ETB from {group_name} "
+                f"in round {round_number}. This is 75% of the {total_collected:,.0f} ETB pool.{bank_suffix}"
+            )
+        return (
+            f"Winner announcement: {winner_name} won {winner_amount:,.0f} ETB from {group_name} in round {round_number}. "
+            f"Please prepare your next contribution of {contribution_amount:,.0f} ETB."
+        )
+
+    def _build_email_message(
+        self,
+        *,
+        is_winner: bool,
+        member_name: str,
+        winner_name: str,
+        winner_amount: float,
+        group_name: str,
+        round_number: int,
+        contribution_amount: float,
+        total_collected: float,
+        system_fee: float,
+        bank_account: Optional[str],
+    ) -> tuple[str, str]:
+        if is_winner:
+            return (
+                f"You won {winner_amount:,.0f} ETB from {group_name}",
+                (
+                    f"<h2>Congratulations {member_name}</h2>"
+                    f"<p>You won <strong>{winner_amount:,.0f} ETB</strong> from <strong>{group_name}</strong> in round {round_number}.</p>"
+                    f"<p>Total collected: {total_collected:,.0f} ETB<br/>Platform fee: {system_fee:,.0f} ETB</p>"
+                    f"<p>Payout account: <strong>{bank_account or 'CBE account on file'}</strong></p>"
+                ),
+            )
+        return (
+            f"{winner_name} won {winner_amount:,.0f} ETB from {group_name}",
+            (
+                f"<h2>Winner announcement</h2>"
+                f"<p><strong>{winner_name}</strong> won <strong>{winner_amount:,.0f} ETB</strong> from <strong>{group_name}</strong> in round {round_number}.</p>"
+                f"<p>Please get ready for the next contribution of <strong>{contribution_amount:,.0f} ETB</strong>.</p>"
+            ),
+        )
 
     def _get_or_create_system_wallet(self) -> Dict[str, Any]:
         wallet = self.db["system_wallets"].find_one({})

@@ -11,6 +11,7 @@ pyotp==2.9.0
 pymongo==4.8.0
 web3==6.11.1
 httpx==0.25.1
+google-auth==2.39.0
 redis==5.0.1
 celery==5.3.4
 sendgrid==6.10.0

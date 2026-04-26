@@ -1,77 +1,98 @@
 import React, { useState } from 'react';
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material';
-import { forgotPassword, verifyResetCode } from '../../services/authService';
-import { validateEmail, validatePasswordMatch, validateRequired } from '../../utils/validators';
+import api from '../../services/api';
+import { validateEmail, validatePasswordMatch } from '../../utils/validators';
 
 function ForgotPassword({ open, onClose, onComplete }) {
     const [step, setStep] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [email, setEmail] = useState('');
-    const [otp, setOtp] = useState('');
+    const [code, setCode] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+
+    const reset = () => { setStep(0); setEmail(''); setCode(''); setPassword(''); setConfirmPassword(''); setError(''); };
+    const handleClose = () => { reset(); onClose?.(); };
 
     const handleNext = async () => {
         setError('');
         setLoading(true);
         try {
             if (step === 0) {
-                const valid = validateEmail(email);
-                if (valid !== true) {
-                    setError(valid);
-                    return;
-                }
-                await forgotPassword({ email });
+                const v = validateEmail(email);
+                if (v !== true) { setError(v); return; }
+                await api.post('/auth/forgot-password', { email });
                 setStep(1);
                 return;
             }
 
             if (step === 1) {
-                const valid = validateRequired(otp, 'Reset code');
-                if (valid !== true || otp.length !== 6) {
-                    setError('Enter the 6-digit reset code');
-                    return;
-                }
-                await verifyResetCode({ email, code: otp });
+                if (!code || code.length !== 6) { setError('Enter the 6-digit reset code.'); return; }
+                await api.post('/auth/verify-reset-code', { email, code });
                 setStep(2);
                 return;
             }
 
             const match = validatePasswordMatch(password, confirmPassword);
-            if (match !== true) {
-                setError(match);
-                return;
-            }
-            onComplete?.({ email, otp, password });
+            if (match !== true) { setError(match); return; }
+            if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+            await api.post('/auth/reset-password', { email, code, password, confirm_password: confirmPassword });
+            onComplete?.({ email, password });
+            reset();
+        } catch (err) {
+            setError(err?.response?.data?.detail || 'Something went wrong. Please try again.');
         } finally {
             setLoading(false);
         }
     };
 
+    const steps = ['Request reset code', 'Enter reset code', 'Set new password'];
+    const descriptions = [
+        'Enter your registered email address to receive a 6-digit reset code.',
+        `Enter the 6-digit code sent to ${email}.`,
+        'Choose a strong new password for your account.',
+    ];
+
     return (
-        <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-            <DialogTitle>Forgot password</DialogTitle>
+        <Dialog open={open} onClose={handleClose} maxWidth="xs" fullWidth>
+            <DialogTitle>{steps[step]}</DialogTitle>
             <DialogContent>
                 <Stack spacing={2} sx={{ pt: 1 }}>
-                    <Typography color="text.secondary">
-                        {step === 0 && 'Enter your registered email to request a reset code.'}
-                        {step === 1 && 'Enter the verification code sent to your account.'}
-                        {step === 2 && 'Choose a new password to complete recovery.'}
-                    </Typography>
+                    <Typography variant="body2" color="text.secondary">{descriptions[step]}</Typography>
                     {error && <Alert severity="error">{error}</Alert>}
-                    {step === 0 && <TextField label="Registered email" value={email} onChange={(e) => setEmail(e.target.value)} fullWidth />}
-                    {step === 1 && <TextField label="6-digit code" value={otp} onChange={(e) => setOtp(e.target.value.replace(/[^\d]/g, '').slice(0, 6))} fullWidth />}
+                    {step === 0 && (
+                        <TextField
+                            label="Email address"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            fullWidth
+                            autoFocus
+                            onKeyDown={(e) => e.key === 'Enter' && handleNext()}
+                        />
+                    )}
+                    {step === 1 && (
+                        <TextField
+                            label="6-digit reset code"
+                            value={code}
+                            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            fullWidth
+                            autoFocus
+                            inputProps={{ inputMode: 'numeric', maxLength: 6 }}
+                            onKeyDown={(e) => e.key === 'Enter' && handleNext()}
+                        />
+                    )}
                     {step === 2 && (
                         <>
-                            <TextField label="New password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} fullWidth />
-                            <TextField label="Confirm password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} fullWidth />
+                            <TextField label="New password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} fullWidth autoFocus />
+                            <TextField label="Confirm password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} fullWidth onKeyDown={(e) => e.key === 'Enter' && handleNext()} />
                         </>
                     )}
                 </Stack>
             </DialogContent>
             <DialogActions>
-                <Button onClick={onClose}>Close</Button>
+                <Button onClick={handleClose} disabled={loading}>Cancel</Button>
                 <Button variant="contained" onClick={handleNext} disabled={loading}>
                     {loading ? 'Processing...' : step === 2 ? 'Reset password' : 'Continue'}
                 </Button>

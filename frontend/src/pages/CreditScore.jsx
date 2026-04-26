@@ -488,7 +488,7 @@ const CreditScore = () => {
     }
 
     return (
-        <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', py: 4 }}>
+        <Box sx={{ bgcolor: 'background.default', minHeight: '100vh', py: 4 }}>
             <Container maxWidth="xl">
                 {/* Header */}
                 <Box sx={{ mb: 4 }}>

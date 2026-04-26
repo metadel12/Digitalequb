@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import { useAuth } from '../hooks/useAuth';
+import { useTheme } from '../context/ThemeContext';
 import { groups as groupsApi } from '../services/api';
 import dashboardService from '../services/dashboardService';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
@@ -26,6 +27,7 @@ const formatCurrency = (value) => `ETB ${Number(value || 0).toLocaleString()}`;
 
 export default function Dashboard() {
     const { user } = useAuth();
+    const { isDarkMode } = useTheme();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const chartsRef = useRef(null);
@@ -248,18 +250,18 @@ export default function Dashboard() {
                     <section>
                         <div className="mb-5 flex items-center justify-between">
                             <div>
-                                <h2 className="text-2xl font-black tracking-tight text-slate-900">Active Groups</h2>
-                                <p className="text-sm text-slate-500">Track progress and pay contributions without leaving the dashboard</p>
+                                <h2 style={{ color: isDarkMode ? '#f1f5f9' : '#0f172a' }} className="text-2xl font-black tracking-tight">Active Groups</h2>
+                                <p style={{ color: isDarkMode ? '#94a3b8' : '#64748b' }} className="text-sm">Track progress and pay contributions without leaving the dashboard</p>
                             </div>
-                            <button onClick={() => navigate('/groups')} className="text-sm font-semibold text-sky-700 transition hover:text-sky-900">
+                            <button onClick={() => navigate('/groups')} style={{ color: isDarkMode ? '#38bdf8' : '#0369a1' }} className="text-sm font-semibold transition hover:opacity-80">
                                 View all groups
                             </button>
                         </div>
                         {activeGroups.length === 0 ? (
-                            <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
-                                <p className="text-xl font-bold text-slate-900">No active groups</p>
-                                <p className="mt-2 text-sm text-slate-500">Create your first Equb group to start building savings momentum.</p>
-                                <button onClick={() => navigate('/create-group')} className="mt-5 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+                            <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}` }} className="rounded-[28px] p-10 text-center shadow-sm">
+                                <p style={{ color: isDarkMode ? '#f1f5f9' : '#0f172a' }} className="text-xl font-bold">No active groups</p>
+                                <p style={{ color: isDarkMode ? '#94a3b8' : '#64748b' }} className="mt-2 text-sm">Create your first Equb group to start building savings momentum.</p>
+                                <button onClick={() => navigate('/create-group')} style={{ background: isDarkMode ? '#f1f5f9' : '#0f172a', color: isDarkMode ? '#0f172a' : '#ffffff' }} className="mt-5 rounded-2xl px-5 py-3 text-sm font-semibold transition hover:opacity-90">
                                     Create Group
                                 </button>
                             </div>

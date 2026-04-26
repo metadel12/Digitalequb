@@ -10,15 +10,15 @@ function Login() {
     return (
         <AuthLayout
             title="Welcome back"
-            subtitle={location.state?.message || 'Sign in with email or phone to manage groups, wallet activity, KYC progress, and secure sessions.'}
+            subtitle={location.state?.message || 'Sign in with email or phone to manage your groups, wallet, and KYC progress.'}
             heroTitle="Fast, secure access to your DigiEqub account."
-            heroSubtitle="Built for real-world member access with 2FA readiness, session protection, password recovery, and responsive sign-in on every device."
+            heroSubtitle="Built for real-world member access with 2FA readiness, password recovery, and responsive sign-in on every device."
             highlights={[
                 'Email and phone login modes',
-                '2FA, biometric, QR, and magic-link ready UX',
-                'Forgot-password and session management flows',
+                'Two-factor authentication support',
+                'Forgot-password and account recovery flows',
             ]}
-            badges={['Security monitored', 'Trusted sessions', 'Accessibility aware']}
+            badges={['Security monitored', 'Accessibility aware']}
         >
             <LoginForm onNavigateRegister={() => navigate('/register')} />
         </AuthLayout>

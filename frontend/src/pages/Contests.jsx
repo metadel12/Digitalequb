@@ -10,7 +10,7 @@ const contests = [
 
 const Contests = () => {
     return (
-        <Box sx={{ bgcolor: '#f5f7fb', minHeight: '100vh', py: 4 }}>
+        <Box sx={{ bgcolor: 'background.default', minHeight: '100vh', py: 4 }}>
             <Container maxWidth="lg">
                 <Stack spacing={1} sx={{ mb: 4 }}>
                     <Typography variant="h4" fontWeight={800}>

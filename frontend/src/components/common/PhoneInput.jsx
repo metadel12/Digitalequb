@@ -14,6 +14,7 @@ function PhoneInput({
     onPhoneNumberChange,
     countryCodeError,
     phoneNumberError,
+    onBlur,
 }) {
     return (
         <Grid container spacing={2}>
@@ -42,6 +43,7 @@ function PhoneInput({
                     label="Phone Number"
                     value={phoneNumber}
                     onChange={(event) => onPhoneNumberChange(event.target.value.replace(/[^\d]/g, ''))}
+                    onBlur={onBlur}
                     error={Boolean(phoneNumberError)}
                     helperText={phoneNumberError}
                     inputProps={{ inputMode: 'numeric', 'aria-label': 'Phone number' }}

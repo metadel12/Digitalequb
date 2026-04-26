@@ -405,13 +405,14 @@ export const ThemeProvider = ({
         root.dataset.highContrast = uiPreferences.highContrast ? 'true' : 'false';
         root.classList.toggle('reduced-motion', uiPreferences.reducedMotion);
         root.classList.toggle('high-contrast', uiPreferences.highContrast);
+        root.classList.toggle('dark', mode === 'dark' || (mode === 'system' && prefersDarkMode));
         root.style.fontSize =
             uiPreferences.fontSize === 'small'
                 ? '14px'
                 : uiPreferences.fontSize === 'large'
                     ? '18px'
                     : '16px';
-    }, [mode, uiPreferences]);
+    }, [mode, uiPreferences, prefersDarkMode]);
 
     // Get base colors based on mode and color scheme
     const getBaseColors = useCallback(() => {
