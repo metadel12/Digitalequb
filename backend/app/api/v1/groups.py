@@ -34,11 +34,61 @@ from ...services.winner_service import WinnerService
 router = APIRouter()
 
 
+def _push_notification(db: Database, user_id: str, title: str, message: str,
+                        ntype: str, priority: str = "medium",
+                        link: str | None = None, metadata: dict | None = None,
+                        actions: list | None = None) -> None:
+    """Insert a real-time notification for a user."""
+    from ...core.mongo_utils import new_id, utcnow as _utcnow
+    db["notifications"].insert_one({
+        "_id": new_id(),
+        "user_id": str(user_id),
+        "title": title,
+        "message": message,
+        "type": ntype,
+        "read": False,
+        "priority": priority,
+        "link": link,
+        "metadata": metadata or {},
+        "actions": actions or [],
+        "created_at": _utcnow(),
+    })
+
+
+def _record_transaction(db: Database, user_id: str, group_id: str, group_name: str,
+                         amount: float, tx_type: str, status: str = "completed",
+                         reference: str | None = None) -> str:
+    """Insert a transaction record and return its ID."""
+    from ...core.mongo_utils import new_id, utcnow as _utcnow
+    tx_id = new_id()
+    db["transactions"].insert_one({
+        "_id": tx_id,
+        "user_id": str(user_id),
+        "sender_id": str(user_id),
+        "group_id": str(group_id),
+        "group_name": group_name,
+        "amount": float(amount),
+        "type": tx_type,
+        "status": status,
+        "reference": reference,
+        "created_at": _utcnow(),
+        "updated_at": _utcnow(),
+    })
+    return tx_id
+
+
 def _generate_join_code(length: int = 6) -> str:
     return "".join(random.choices(string.digits, k=length))
 
 
-def _group_response(group: dict) -> dict:
+def _group_response(group: dict, current_user: dict | None = None) -> dict:
+    is_admin = False
+    if current_user:
+        is_admin = (
+            current_user.get("role") in {"admin", "super_admin", "ADMIN", "SUPER_ADMIN"}
+            or str(group.get("created_by")) == str(current_user["_id"])
+            or str(group.get("_id")) in [str(g) for g in (current_user.get("admin_of_groups") or [])]
+        )
     return {
         "id": group["_id"],
         "name": group["name"],
@@ -55,12 +105,13 @@ def _group_response(group: dict) -> dict:
         "created_by": group.get("created_by"),
         "start_date": group.get("start_date"),
         "end_date": group.get("end_date"),
-        "join_code": group.get("join_code"),
+        "join_code": group.get("join_code") if is_admin else None,
         "created_at": group.get("created_at"),
+        "is_admin": is_admin,
     }
 
 
-def _group_detail_response(group: dict) -> dict:
+def _group_detail_response(group: dict, current_user: dict | None = None) -> dict:
     members = [
         {
             "user_id": member["user_id"],
@@ -77,7 +128,7 @@ def _group_detail_response(group: dict) -> dict:
     total_contributions = sum(float(member.get("total_contributed", 0)) for member in group.get("members", []))
     total_rounds = group_total_rounds(group)
     return {
-        **_group_response(group),
+        **_group_response(group, current_user),
         "creator": {
             "id": group.get("created_by"),
             "full_name": group.get("creator_name", "Unknown"),
@@ -91,7 +142,10 @@ def _group_detail_response(group: dict) -> dict:
 
 
 def _is_admin(current_user: dict, group: dict) -> bool:
-    return current_user.get("role") in {"admin", "super_admin", "ADMIN", "SUPER_ADMIN"} or str(group.get("created_by")) == str(current_user["_id"])
+    is_system_admin = current_user.get("role") in {"admin", "super_admin", "ADMIN", "SUPER_ADMIN"}
+    is_creator = str(group.get("created_by")) == str(current_user["_id"])
+    is_group_admin = str(group.get("_id")) in [str(g) for g in (current_user.get("admin_of_groups") or [])]
+    return is_system_admin or is_creator or is_group_admin
 
 
 def _get_system_admin(db: Database) -> dict:
@@ -199,6 +253,42 @@ async def create_comprehensive_group(payload: ComprehensiveGroupCreate, current_
         "updated_at": now,
     }
     db["groups"].insert_one(group)
+
+    gid = group["_id"]
+    uid = str(current_user["_id"])
+    gname = group["name"]
+
+    # Mark creator as group admin in their user record
+    db["users"].update_one(
+        {"_id": current_user["_id"]},
+        {"$addToSet": {"admin_of_groups": gid}, "$set": {"updated_at": utcnow()}},
+    )
+
+    # Notification → creator (stored in MongoDB notifications collection)
+    _push_notification(
+        db, uid,
+        title=f"🎉 Group '{gname}' Created!",
+        message=(
+            f"You are now the admin of '{gname}'. "
+            f"Join code: {join_code}. "
+            f"Max members: {payload.max_members}, "
+            f"Contribution: ETB {payload.contribution_amount:,.0f} / {payload.frequency}."
+        ),
+        ntype="success",
+        priority="high",
+        link=f"/groups/{gid}",
+        metadata={
+            "group_id": gid,
+            "group_name": gname,
+            "join_code": join_code,
+            "contribution_amount": payload.contribution_amount,
+            "max_members": payload.max_members,
+            "frequency": payload.frequency,
+            "role": "admin",
+        },
+        actions=[{"label": "View Group", "action": "view_group"}],
+    )
+
     return {
         "success": True,
         "group_id": group["_id"],
@@ -263,7 +353,7 @@ async def get_group_detail(group_id: str, current_user=Depends(get_current_activ
     group = db["groups"].find_one({"_id": str(group_id)})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    return _group_detail_response(group)
+    return _group_detail_response(group, current_user)
 
 
 @router.get("/{group_id}/winners", response_model=GroupWinnersResponse)
@@ -312,8 +402,9 @@ async def select_group_winner(group_id: str, payload: WinnerSelectionRequest, cu
     group = db["groups"].find_one({"_id": str(group_id)})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    if not _is_admin(current_user, group):
-        raise HTTPException(status_code=403, detail="Only the group admin can select a winner")
+    # Only system admin (super_admin / admin role) can select winners — not group creators
+    if current_user.get("role") not in {"admin", "super_admin", "ADMIN", "SUPER_ADMIN"}:
+        raise HTTPException(status_code=403, detail="Only the system admin can select a winner")
     try:
         return WinnerService(db).select_weekly_winner(group_id, payload.method)
     except ValueError as exc:
@@ -346,7 +437,39 @@ async def join_group(group_id: str, join_data: Optional[JoinGroup] = None, curre
     members = list(group.get("members", []))
     members.append(group_member_doc(current_user, len(members)))
     db["groups"].update_one({"_id": group["_id"]}, {"$set": {"members": members, "current_members": len(members), "updated_at": utcnow()}})
-    return {"message": "Successfully joined group"}
+
+    gname = group.get("name", "Equb Group")
+    gid = str(group["_id"])
+    uid = str(current_user["_id"])
+
+    # Transaction record
+    _record_transaction(db, uid, gid, gname, 0, "group_join", "completed")
+
+    # Notify the user who joined
+    _push_notification(
+        db, uid,
+        title=f"Joined {gname}",
+        message=f"You successfully joined {gname}. Your first contribution of ETB {group.get('contribution_amount', 0):,.0f} is due.",
+        ntype="group",
+        priority="medium",
+        link=f"/groups/{gid}",
+        metadata={"group_id": gid, "group_name": gname},
+        actions=[{"label": "View Group", "action": "view_group"}],
+    )
+
+    # Notify the group creator
+    if str(group.get("created_by")) != uid:
+        _push_notification(
+            db, str(group["created_by"]),
+            title="New Member Joined",
+            message=f"{current_user.get('full_name', 'A user')} joined your group {gname}.",
+            ntype="group",
+            priority="low",
+            link=f"/groups/{gid}",
+            metadata={"group_id": gid, "group_name": gname, "member_name": current_user.get("full_name")},
+        )
+
+    return {"message": "Successfully joined group", "group_id": gid}
 
 
 @router.post("/{group_id}/leave")
@@ -388,8 +511,9 @@ async def mark_member_paid(group_id: str, user_id: str, current_user=Depends(get
     group = db["groups"].find_one({"_id": str(group_id)})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    if not _is_admin(current_user, group):
-        raise HTTPException(status_code=403, detail="Only admins can mark payments")
+    # Only system admin can mark payments as verified
+    if current_user.get("role") not in {"admin", "super_admin", "ADMIN", "SUPER_ADMIN"}:
+        raise HTTPException(status_code=403, detail="Only the system admin can verify payments")
 
     round_number = int(group.get("current_round") or current_round_number(group))
     updated_members = []
@@ -513,19 +637,48 @@ async def contribute_to_group(
 
     try:
         if request.payment_method == "wallet":
-            # Handle wallet payment
             from ...services.wallet_service import WalletService
             wallet_service = WalletService(db)
             result = wallet_service.pay_equb_contribution(str(current_user["_id"]), group_id, request.amount)
+
+            gname = group.get("name", "Equb Group")
+            uid = str(current_user["_id"])
+
+            # Transaction record
+            tx_id = _record_transaction(db, uid, group_id, gname, request.amount, "equb_contribution", "completed")
+
+            # Notify contributor
+            _push_notification(
+                db, uid,
+                title="Contribution Successful",
+                message=f"Your ETB {request.amount:,.0f} contribution to {gname} was successful.",
+                ntype="payment",
+                priority="high",
+                link=f"/groups/{group_id}",
+                metadata={"group_id": group_id, "group_name": gname, "amount": request.amount, "transaction_id": tx_id},
+                actions=[{"label": "View Receipt", "action": "view_receipt"}],
+            )
+
+            # Notify group creator
+            if str(group.get("created_by")) != uid:
+                _push_notification(
+                    db, str(group["created_by"]),
+                    title="Payment Received",
+                    message=f"{current_user.get('full_name', 'A member')} paid ETB {request.amount:,.0f} to {gname}.",
+                    ntype="payment",
+                    priority="medium",
+                    link=f"/groups/{group_id}",
+                    metadata={"group_id": group_id, "amount": request.amount},
+                )
+
             return {
                 "message": "Contribution made successfully from wallet",
-                "payment_id": result.get("transaction_id"),
+                "payment_id": result.get("transaction_id") or tx_id,
                 "round_number": result.get("round_number"),
                 "status": "completed",
                 "blockchain_tx": None,
             }
         else:
-            # Handle manual payment submissions such as bank transfer and Telebirr.
             if not request.transaction_reference or not request.proof_image:
                 raise HTTPException(status_code=400, detail="Transaction reference and proof image are required for bank or Telebirr payments")
 
@@ -537,6 +690,24 @@ async def contribute_to_group(
                 transaction_reference=request.transaction_reference,
                 proof_image=request.proof_image
             )
+
+            gname = group.get("name", "Equb Group")
+            uid = str(current_user["_id"])
+
+            # Transaction record (pending until admin verifies)
+            tx_id = _record_transaction(db, uid, group_id, gname, request.amount, "equb_contribution", "pending", request.transaction_reference)
+
+            # Notify contributor
+            _push_notification(
+                db, uid,
+                title="Payment Submitted",
+                message=f"Your ETB {request.amount:,.0f} payment proof for {gname} was submitted and is pending verification.",
+                ntype="payment",
+                priority="medium",
+                link=f"/groups/{group_id}",
+                metadata={"group_id": group_id, "group_name": gname, "amount": request.amount, "transaction_id": tx_id},
+            )
+
             return {
                 "message": result["message"],
                 "payment_id": result["payment_id"],

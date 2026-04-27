@@ -13,6 +13,47 @@ WINNER_PAYOUT_RATIO = 0.75
 SYSTEM_PAYOUT_RATIO = 0.25
 
 
+def _push_notification(db, user_id: str, title: str, message: str,
+                        ntype: str, priority: str = "medium",
+                        link: str | None = None, metadata: dict | None = None) -> None:
+    db["notifications"].insert_one({
+        "_id": new_id(),
+        "user_id": str(user_id),
+        "title": title,
+        "message": message,
+        "type": ntype,
+        "read": False,
+        "priority": priority,
+        "link": link,
+        "metadata": metadata or {},
+        "actions": [],
+        "created_at": utcnow(),
+    })
+
+
+def _send_email_notification(db, user_id: str, subject: str, body: str) -> None:
+    """Queue an email notification via OTPService SMTP (fire-and-forget)."""
+    import asyncio
+    try:
+        user = db["users"].find_one({"_id": str(user_id)}) or {}
+        email = user.get("email")
+        if not email:
+            return
+        from ..services.otp_service import OTPService
+        svc = OTPService()
+        # Run async send in a new event loop if not already running
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(svc._send_via_smtp(email, subject, body))
+            else:
+                loop.run_until_complete(svc._send_via_smtp(email, subject, body))
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 class WalletService:
     def __init__(self, db: Database):
         self.db = db
@@ -129,6 +170,20 @@ class WalletService:
                 "$set": {"balance": balance_after, "last_transaction_at": now, "updated_at": now},
                 "$inc": {"total_deposits": amount, "total_transactions": 1},
             },
+        )
+        # Notification + email for deposit
+        _push_notification(
+            self.db, str(user_id),
+            title="Deposit Successful",
+            message=f"ETB {amount:,.0f} deposited to your wallet via {payment_method}. New balance: ETB {balance_after:,.0f}.",
+            ntype="payment", priority="high",
+            link="/wallet",
+            metadata={"amount": amount, "reference": reference, "method": payment_method},
+        )
+        _send_email_notification(
+            self.db, str(user_id),
+            subject="DigiEqub – Deposit Confirmed",
+            body=f"<p>Your deposit of <strong>ETB {amount:,.0f}</strong> via {payment_method} was successful.</p><p>Reference: <strong>{reference}</strong></p><p>New wallet balance: <strong>ETB {balance_after:,.0f}</strong></p>",
         )
         return {
             "transaction_id": tx["_id"],
@@ -248,7 +303,20 @@ class WalletService:
             {"_id": wallet["_id"]},
             {"$set": update_fields, "$inc": update_increments},
         )
-
+        # Notification + email for withdrawal
+        _push_notification(
+            self.db, str(user_id),
+            title="Withdrawal Initiated",
+            message=f"ETB {amount:,.0f} withdrawal via {withdrawal_data.withdrawal_method} is {status}. Reference: {reference}.",
+            ntype="payment", priority="high",
+            link="/wallet",
+            metadata={"amount": amount, "reference": reference, "method": withdrawal_data.withdrawal_method, "status": status},
+        )
+        _send_email_notification(
+            self.db, str(user_id),
+            subject="DigiEqub – Withdrawal Request",
+            body=f"<p>Your withdrawal of <strong>ETB {amount:,.0f}</strong> via {withdrawal_data.withdrawal_method} is <strong>{status}</strong>.</p><p>Reference: <strong>{reference}</strong></p><p>Fee: ETB {fee:,.2f}</p>",
+        )
         return {
             "withdrawal_id": tx["_id"],
             "amount": amount,
@@ -479,7 +547,25 @@ class WalletService:
             {"_id": str(group_id)},
             {"$set": {"members": updated_members, "rules": rules, "updated_at": now, "current_round": round_number, "total_rounds": int(group.get("total_rounds") or 0)}},
         )
-
+        # Notification + email for equb payment
+        _push_notification(
+            self.db, str(user_id),
+            title="Equb Contribution Paid",
+            message=f"Your ETB {amount:,.0f} contribution to '{group.get('name')}' (Round {round_number}) was successful. Reference: {reference}.",
+            ntype="payment", priority="high",
+            link=f"/groups/{group_id}",
+            metadata={"amount": amount, "reference": reference, "group_id": str(group_id), "group_name": group.get("name"), "round": round_number},
+        )
+        _send_email_notification(
+            self.db, str(user_id),
+            subject=f"DigiEqub – Contribution to {group.get('name')} Confirmed",
+            body=(
+                f"<p>Your contribution of <strong>ETB {amount:,.0f}</strong> to "
+                f"<strong>{group.get('name')}</strong> (Round {round_number}) was successful.</p>"
+                f"<p>Reference: <strong>{reference}</strong></p>"
+                f"<p>New wallet balance: <strong>ETB {balance_after:,.0f}</strong></p>"
+            ),
+        )
         return {
             "reference": reference,
             "transaction_id": tx["_id"],

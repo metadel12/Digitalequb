@@ -202,6 +202,19 @@ async def delete_user(
     return result
 
 
+@router.post("/auto-pay/run")
+async def run_auto_pay(
+    current_user=Depends(get_current_active_user),
+    db: Database = Depends(get_db),
+):
+    """Manually trigger auto-pay for all overdue members across all active groups."""
+    service = _get_admin_service(db)
+    _require_single_admin(current_user, service)
+    from ...services.auto_pay_service import AutoPayService
+    summary = AutoPayService(db).run()
+    return summary
+
+
 @router.post("/groups/select-winner")
 async def select_winner(
     payload: WinnerSelectPayload,

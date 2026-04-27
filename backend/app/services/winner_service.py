@@ -478,12 +478,23 @@ class WinnerService:
 
             self.db["notifications"].insert_one(
                 {
-                    "_id": f"notif-winner-{member_id}-{round_number}",
+                    "_id": new_id(),
                     "user_id": member_id,
-                    "title": "You Won This Round" if is_winner else "Winner Announcement",
+                    "title": "🏆 You Won This Round!" if is_winner else "Winner Announcement",
                     "message": sms_message,
-                    "type": "winner_announcement",
+                    "type": "contest",
                     "read": False,
+                    "priority": "high" if is_winner else "medium",
+                    "link": f"/groups/{group.get('_id')}",
+                    "metadata": {
+                        "group_id": str(group.get("_id")),
+                        "group_name": group.get("name"),
+                        "round_number": round_number,
+                        "winner_name": winner_record.get("winner_name"),
+                        "winner_amount": winner_amount,
+                        "is_winner": is_winner,
+                    },
+                    "actions": [{"label": "View Group", "action": "view_group"}],
                     "delivered": True,
                     "group_id": str(group.get("_id")),
                     "round_number": round_number,
@@ -491,6 +502,19 @@ class WinnerService:
                     "updated_at": utcnow(),
                 }
             )
+            # Send email to each member
+            if member_user.get("email"):
+                from ..services.otp_service import OTPService
+                import asyncio
+                try:
+                    svc = OTPService()
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.ensure_future(svc._send_via_smtp(member_user["email"], email_subject, email_body))
+                    else:
+                        loop.run_until_complete(svc._send_via_smtp(member_user["email"], email_subject, email_body))
+                except Exception:
+                    pass
 
             recipients.append(
                 {

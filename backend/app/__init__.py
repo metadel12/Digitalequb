@@ -23,11 +23,35 @@ def create_application() -> FastAPI:
 
     @app.on_event("startup")
     def startup() -> None:
+        import threading
+        import time
+
         db = get_database_instance()
         ensure_indexes(db)
         migrate_legacy_sqlite_to_mongo(db)
         AuthService(db).ensure_system_admin()
         AuthService(db).ensure_demo_user()
+
+        def auto_pay_loop() -> None:
+            """Run auto-pay every hour in the background."""
+            from .services.auto_pay_service import AutoPayService
+            # Wait 60 seconds after startup before first run
+            time.sleep(60)
+            while True:
+                try:
+                    _db = get_database_instance()
+                    summary = AutoPayService(_db).run()
+                    if summary["processed"] or summary["failed"]:
+                        logger.info(
+                            "Auto-pay: %d paid, %d failed",
+                            summary["processed"], summary["failed"]
+                        )
+                except Exception:
+                    logger.exception("Auto-pay loop error")
+                time.sleep(3600)  # run every hour
+
+        t = threading.Thread(target=auto_pay_loop, daemon=True, name="auto-pay")
+        t.start()
 
     @app.get("/", tags=["Platform"])
     async def root():
@@ -67,7 +91,7 @@ def create_application() -> FastAPI:
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
-    from .api.v1 import admin, auth, dashboard, groups, payments, settings as settings_router, transactions, users
+    from .api.v1 import admin, auth, dashboard, groups, notifications, payments, settings as settings_router, transactions, users
     from .routers import profile, wallet
 
     app.include_router(platform_router)
@@ -81,6 +105,7 @@ def create_application() -> FastAPI:
     app.include_router(profile.router, prefix="/api/v1/profile", tags=["Profile"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
     app.include_router(payments.router, prefix="/api/v1/payments", tags=["Payments"])
+    app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 
     return app
 

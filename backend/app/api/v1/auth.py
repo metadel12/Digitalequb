@@ -475,13 +475,21 @@ async def apple_callback(request: Request, db: Database = Depends(get_db)) -> An
 async def onboarding_status(current_user=Depends(get_current_user)) -> Any:
     security_questions = current_user.get("security_questions") or []
     two_factor = current_user.get("two_factor") or {}
+    bank = current_user.get("bank_account") or {}
+    profile_complete = bool(
+        current_user.get("full_name", "").strip()
+        and bank.get("account_number", "").strip()
+        and bank.get("account_name", "").strip()
+    )
     complete = bool(
-        current_user.get("email_verified")
+        profile_complete
+        and current_user.get("email_verified")
         and current_user.get("phone_verified")
         and len(security_questions) >= 3
         and (current_user.get("is_2fa_enabled") or two_factor.get("enabled"))
     )
     return {
+        "profile_complete": profile_complete,
         "email_verified": bool(current_user.get("email_verified")),
         "phone_verified": bool(current_user.get("phone_verified")),
         "phone_number": current_user.get("phone_number"),
@@ -490,7 +498,55 @@ async def onboarding_status(current_user=Depends(get_current_user)) -> Any:
         "two_factor_enabled": bool(current_user.get("is_2fa_enabled") or two_factor.get("enabled")),
         "two_factor_method": two_factor.get("method"),
         "complete": complete,
+        "full_name": current_user.get("full_name", ""),
+        "bank_account": bank,
     }
+
+
+@router.post("/complete-profile")
+async def complete_profile(request: Request, current_user=Depends(get_current_user), db: Database = Depends(get_db)) -> Any:
+    body = await request.json()
+    full_name = (body.get("full_name") or "").strip()
+    account_number = (body.get("account_number") or "").strip()
+    account_name = (body.get("account_name") or "").strip()
+
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Full name is required")
+    if not account_number or not account_name:
+        raise HTTPException(status_code=400, detail="CBE account number and account name are required")
+
+    # Check account not already used by another user
+    existing = db["users"].find_one({"bank_account.account_number": account_number})
+    if existing and str(existing["_id"]) != str(current_user["_id"]):
+        raise HTTPException(status_code=400, detail="This bank account is already registered")
+
+    # Verify CBE account
+    bank_service = CommercialBankOfEthiopiaService(db)
+    verification = await bank_service.verify_account_ownership(account_number, account_name)
+    if not verification.get("success"):
+        raise HTTPException(status_code=400, detail=verification.get("error", "Bank account verification failed"))
+
+    bank_service._create_or_update_account(
+        account_number, account_name, CommercialBankOfEthiopiaService.BANK_NAME, initial_balance=100000.0
+    )
+
+    db["users"].update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {
+            "full_name": full_name,
+            "bank_account": {
+                "bank_name": CommercialBankOfEthiopiaService.BANK_NAME,
+                "bank_code": "CBE",
+                "account_number": account_number,
+                "account_name": account_name,
+                "verified": True,
+                "verified_at": utcnow(),
+                "verified_by_bank": True,
+            },
+            "updated_at": utcnow(),
+        }},
+    )
+    return {"success": True, "message": "Profile completed successfully"}
 
 
 @router.post("/send-sms-otp")

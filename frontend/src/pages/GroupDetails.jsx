@@ -1025,31 +1025,6 @@ const GroupDetails = () => {
             return;
         }
 
-        if (!paymentForm.acceptTerms) {
-            enqueueSnackbar('Please accept the payment terms first', { variant: 'warning' });
-            return;
-        }
-
-        if (isStoredGroup && contributionMethod === 'bank' && (!paymentForm.bankName || !paymentForm.accountNumber)) {
-            enqueueSnackbar('Please add bank details', { variant: 'warning' });
-            return;
-        }
-
-        if (isStoredGroup && contributionMethod === 'mobile' && !paymentForm.mobileNumber) {
-            enqueueSnackbar('Please add the mobile money number', { variant: 'warning' });
-            return;
-        }
-
-        if (isStoredGroup && contributionMethod === 'card' && !paymentForm.cardLast4) {
-            enqueueSnackbar('Please enter the card last 4 digits', { variant: 'warning' });
-            return;
-        }
-
-        if (isStoredGroup && contributionMethod === 'crypto' && !paymentForm.walletAddress) {
-            enqueueSnackbar('Please add the wallet address', { variant: 'warning' });
-            return;
-        }
-
         setIsSubmitting(true);
         setPaymentStep(1);
 
@@ -1502,16 +1477,6 @@ const GroupDetails = () => {
                                         <Stack direction="row" spacing={1}>
                                             {isAdmin && (
                                                 <>
-                                                    {group && (
-                                                        <Tooltip title="Pick Weekly Winner">
-                                                            <IconButton
-                                                                sx={{ bgcolor: 'background.paper', '&:hover': { bgcolor: 'action.hover' } }}
-                                                                onClick={handleDrawWinner}
-                                                            >
-                                                                <EmojiEventsIcon />
-                                                            </IconButton>
-                                                        </Tooltip>
-                                                    )}
                                                     <Tooltip title="Edit Group">
                                                         <IconButton
                                                             sx={{ bgcolor: 'background.paper', '&:hover': { bgcolor: 'action.hover' } }}
@@ -2263,13 +2228,6 @@ const GroupDetails = () => {
                                             title="Winner History"
                                             subheader="Pick winners with a random draw or highest bid. Each payout sends 75% to the winner wallet and 25% to the system wallet."
                                             avatar={<EmojiEventsIcon />}
-                                            action={
-                                                isAdmin ? (
-                                                    <Button variant="contained" onClick={handleDrawWinner}>
-                                                        Pick Winner
-                                                    </Button>
-                                                ) : null
-                                            }
                                         />
                                         <CardContent sx={{ pt: 0 }}>
                                             <Grid container spacing={2} sx={{ mb: 2 }}>
@@ -2919,300 +2877,71 @@ const GroupDetails = () => {
                 </Dialog>
 
                 {/* Payment Dialog */}
-                <Dialog open={openContributionDialog} onClose={resetPaymentDialog} maxWidth="sm" fullWidth>
+                <Dialog open={openContributionDialog} onClose={resetPaymentDialog} maxWidth="xs" fullWidth>
                     <DialogTitle>
-                        {paymentContext === 'join' ? 'Complete Your First Payment' : 'Member Payment Collection'}
+                        Pay Equb Contribution
                         <IconButton onClick={resetPaymentDialog} sx={{ position: 'absolute', right: 8, top: 8 }}>
                             <CloseIcon />
                         </IconButton>
                     </DialogTitle>
                     <DialogContent>
                         <Stack spacing={2.5} sx={{ mt: 1 }}>
-                            <Stepper activeStep={paymentStep} alternativeLabel>
-                                <Step>
-                                    <StepLabel>Details</StepLabel>
-                                </Step>
-                                <Step>
-                                    <StepLabel>Processing</StepLabel>
-                                </Step>
-                                <Step>
-                                    <StepLabel>Confirmed</StepLabel>
-                                </Step>
-                            </Stepper>
-
-                            <Card variant="outlined">
-                                <CardContent>
-                                    <Stack spacing={1.5}>
-                                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                            <Typography variant="h6" fontWeight={700}>{group.name}</Typography>
-                                            <Chip
-                                                size="small"
-                                                color={paymentContext === 'join' ? 'secondary' : 'primary'}
-                                                label={paymentContext === 'join' ? 'First Payment' : 'Recurring Payment'}
-                                            />
-                                        </Stack>
-                                        <Grid container spacing={2}>
-                                            <Grid size={6}>
-                                                <Typography variant="caption" color="text.secondary">Contribution Amount</Typography>
-                                                <Typography variant="body1" fontWeight={700}>
-                                                    {group.currency || 'ETB'} {Number(group.rules.defaultContribution || 1000).toLocaleString()}
-                                                </Typography>
-                                            </Grid>
-                                            <Grid size={6}>
-                                                <Typography variant="caption" color="text.secondary">Payment Frequency</Typography>
-                                                <Typography variant="body1" fontWeight={700}>
-                                                    {(group.rules.frequency || 'weekly').replace(/^./, (char) => char.toUpperCase())}
-                                                </Typography>
-                                            </Grid>
-                                            <Grid size={6}>
-                                                <Typography variant="caption" color="text.secondary">Total Members</Typography>
-                                                <Typography variant="body1" fontWeight={700}>{group.memberCount} / {group.maxMembers}</Typography>
-                                            </Grid>
-                                            <Grid size={6}>
-                                                <Typography variant="caption" color="text.secondary">Your Rotation Position</Typography>
-                                                <Typography variant="body1" fontWeight={700}>
-                                                    {group.members.findIndex((member) => String(member.id) === String(user?.id)) + 1 || '-'}
-                                                </Typography>
-                                            </Grid>
-                                        </Grid>
-                                    </Stack>
-                                </CardContent>
-                            </Card>
-
                             {paymentStep === 0 && (
                                 <>
-                                    <Alert severity="info">
-                                        Due now: {group.currency || 'ETB'} {Number(contributionAmount || group.rules.defaultContribution || 1000).toLocaleString()}.
+                                    <Card variant="outlined" sx={{ bgcolor: alpha(theme.palette.primary.main, 0.04) }}>
+                                        <CardContent>
+                                            <Stack spacing={1}>
+                                                <Typography variant="body2" color="text.secondary">Group</Typography>
+                                                <Typography variant="h6" fontWeight={700}>{group.name}</Typography>
+                                                <Divider />
+                                                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                                    <Typography variant="body2" color="text.secondary">Due Amount</Typography>
+                                                    <Typography variant="h5" fontWeight={800} color="primary.main">
+                                                        ETB {Number(expectedContributionAmount || group.rules.defaultContribution || 0).toLocaleString()}
+                                                    </Typography>
+                                                </Stack>
+                                                <Stack direction="row" justifyContent="space-between">
+                                                    <Typography variant="caption" color="text.secondary">Frequency</Typography>
+                                                    <Typography variant="caption" fontWeight={600}>
+                                                        {(group.rules.frequency || 'weekly').replace(/^./, c => c.toUpperCase())}
+                                                    </Typography>
+                                                </Stack>
+                                            </Stack>
+                                        </CardContent>
+                                    </Card>
+                                    <Alert severity="info" icon={<WalletIcon />}>
+                                        Payment will be deducted directly from your DigiEqub wallet.
                                     </Alert>
-
-                                    <TextField
-                                        fullWidth
-                                        type="number"
-                                        label="Due Amount"
-                                        value={contributionAmount}
-                                        onChange={(e) => setContributionAmount(e.target.value)}
-                                        helperText={!isStoredGroup
-                                            ? `Group contribution is fixed at ${group.currency || 'ETB'} ${Number(expectedContributionAmount || 0).toLocaleString()}`
-                                            : `Group contribution is fixed at ${group.currency || 'ETB'} ${group.rules.defaultContribution}`}
-                                        disabled={!isStoredGroup}
-                                        InputProps={{
-                                            startAdornment: <InputAdornment position="start">{group.currency || 'ETB'}</InputAdornment>
-                                        }}
-                                    />
-
-                                    <Typography variant="subtitle2" fontWeight={700}>Choose Payment Method</Typography>
-                                    <Grid container spacing={1.5}>
-                                        {[
-                                            { id: 'bank', title: 'Bank Transfer', icon: <AccountBalanceIcon />, helper: 'Manual verification' },
-                                            { id: 'mobile', title: 'Mobile Money', icon: <PhoneIcon />, helper: 'Fastest option' },
-                                            { id: 'card', title: 'Card Payment', icon: <PaymentsIcon />, helper: 'Stripe-ready flow' },
-                                            { id: 'crypto', title: 'Crypto', icon: <WalletIcon />, helper: 'Wallet connect style' },
-                                            { id: 'cash', title: 'Cash', icon: <ReceiptIcon />, helper: 'Offline collection' },
-                                        ].map((method) => (
-                                            <Grid size={{ xs: 12, sm: 6 }} key={method.id}>
-                                                <Card
-                                                    variant="outlined"
-                                                    onClick={() => setContributionMethod(method.id)}
-                                                    sx={{
-                                                        cursor: 'pointer',
-                                                        borderColor: contributionMethod === method.id ? 'primary.main' : 'divider',
-                                                        boxShadow: contributionMethod === method.id ? 4 : 0,
-                                                    }}
-                                                >
-                                                    <CardContent>
-                                                        <Stack direction="row" spacing={1.5} alignItems="center">
-                                                            {method.icon}
-                                                            <Box>
-                                                                <Typography fontWeight={700}>{method.title}</Typography>
-                                                                <Typography variant="caption" color="text.secondary">{method.helper}</Typography>
-                                                            </Box>
-                                                        </Stack>
-                                                    </CardContent>
-                                                </Card>
-                                            </Grid>
-                                        ))}
-                                    </Grid>
-
-                                    {isAdmin && isStoredGroup && (
-                                        <FormControl fullWidth>
-                                            <InputLabel>Member Making Payment</InputLabel>
-                                            <Select
-                                                value={paymentForm.selectedMemberId || resolveContributionMember(user?.id).id}
-                                                label="Member Making Payment"
-                                                onChange={(e) => setPaymentForm((prev) => ({ ...prev, selectedMemberId: e.target.value }))}
-                                            >
-                                                {group.members.map((member) => (
-                                                    <MenuItem key={member.id} value={member.id}>
-                                                        <Stack direction="row" spacing={1} alignItems="center">
-                                                            <Avatar sx={{ width: 24, height: 24 }}>
-                                                                {member.name.charAt(0)}
-                                                            </Avatar>
-                                                            <Typography>{member.name}</Typography>
-                                                            <Chip
-                                                                label={member.role}
-                                                                size="small"
-                                                                color={member.role === 'admin' ? 'primary' : 'default'}
-                                                            />
-                                                        </Stack>
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                            <Typography variant="caption" color="text.secondary">
-                                                Select the member who is making this payment so the contribution history shows the correct name.
-                                            </Typography>
-                                        </FormControl>
-                                    )}
-
-                                    {contributionMethod === 'bank' && (
-                                        <Grid container spacing={2}>
-                                            <Grid size={6}>
-                                                <FormControl fullWidth>
-                                                    <InputLabel>Bank Name</InputLabel>
-                                                    <Select
-                                                        value={paymentForm.bankName}
-                                                        label="Bank Name"
-                                                        onChange={(e) => setPaymentForm((prev) => ({ ...prev, bankName: e.target.value }))}
-                                                    >
-                                                        <MenuItem value="Commercial Bank of Ethiopia">Commercial Bank of Ethiopia</MenuItem>
-                                                        <MenuItem value="Dashen Bank">Dashen Bank</MenuItem>
-                                                        <MenuItem value="Awash International Bank">Awash International Bank</MenuItem>
-                                                        <MenuItem value="Commercial Bank of Ethiopia">Commercial Bank of Ethiopia</MenuItem>
-                                                        <MenuItem value="Wegagen Bank">Wegagen Bank</MenuItem>
-                                                        <MenuItem value="United Bank">United Bank</MenuItem>
-                                                        <MenuItem value="Nib International Bank">Nib International Bank</MenuItem>
-                                                        <MenuItem value="Cooperative Bank of Oromia">Cooperative Bank of Oromia</MenuItem>
-                                                        <MenuItem value="Lion International Bank">Lion International Bank</MenuItem>
-                                                        <MenuItem value="Zemen Bank">Zemen Bank</MenuItem>
-                                                        <MenuItem value="Bunna International Bank">Bunna International Bank</MenuItem>
-                                                        <MenuItem value="Abay Bank">Abay Bank</MenuItem>
-                                                        <MenuItem value="Addis International Bank">Addis International Bank</MenuItem>
-                                                        <MenuItem value="Oromia International Bank">Oromia International Bank</MenuItem>
-                                                        <MenuItem value="Debub Global Bank">Debub Global Bank</MenuItem>
-                                                        <MenuItem value="Other">Other</MenuItem>
-                                                    </Select>
-                                                </FormControl>
-                                            </Grid>
-                                            <Grid size={6}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Account Number"
-                                                    value={paymentForm.accountNumber}
-                                                    onChange={(e) => setPaymentForm((prev) => ({ ...prev, accountNumber: e.target.value }))}
-                                                />
-                                            </Grid>
-                                        </Grid>
-                                    )}
-
-                                    {contributionMethod === 'mobile' && (
-                                        <Grid container spacing={2}>
-                                            <Grid size={6}>
-                                                <FormControl fullWidth>
-                                                    <InputLabel>Provider</InputLabel>
-                                                    <Select
-                                                        value={paymentForm.mobileProvider}
-                                                        label="Provider"
-                                                        onChange={(e) => setPaymentForm((prev) => ({ ...prev, mobileProvider: e.target.value }))}
-                                                    >
-                                                        <MenuItem value="TeleBirr">TeleBirr</MenuItem>
-                                                        <MenuItem value="M-Pesa">M-Pesa</MenuItem>
-                                                    </Select>
-                                                </FormControl>
-                                            </Grid>
-                                            <Grid size={6}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Mobile Number"
-                                                    value={paymentForm.mobileNumber}
-                                                    onChange={(e) => setPaymentForm((prev) => ({ ...prev, mobileNumber: e.target.value }))}
-                                                />
-                                            </Grid>
-                                        </Grid>
-                                    )}
-
-                                    {contributionMethod === 'card' && (
-                                        <TextField
-                                            fullWidth
-                                            label="Card Last 4 Digits"
-                                            value={paymentForm.cardLast4}
-                                            onChange={(e) => setPaymentForm((prev) => ({ ...prev, cardLast4: e.target.value.slice(0, 4) }))}
-                                        />
-                                    )}
-
-                                    {contributionMethod === 'crypto' && (
-                                        <TextField
-                                            fullWidth
-                                            label="Wallet Address"
-                                            value={paymentForm.walletAddress}
-                                            onChange={(e) => setPaymentForm((prev) => ({ ...prev, walletAddress: e.target.value }))}
-                                        />
-                                    )}
-
-                                    <TextField
-                                        fullWidth
-                                        label="Reference Number"
-                                        value={paymentForm.referenceNumber}
-                                        onChange={(e) => setPaymentForm((prev) => ({ ...prev, referenceNumber: e.target.value }))}
-                                        helperText="A secure reference will be generated automatically if you leave this blank."
-                                    />
-                                    <TextField
-                                        fullWidth
-                                        multiline
-                                        rows={3}
-                                        label="Notes"
-                                        value={paymentForm.notes}
-                                        onChange={(e) => setPaymentForm((prev) => ({ ...prev, notes: e.target.value }))}
-                                    />
-                                    <TextField
-                                        fullWidth
-                                        label="Receipt / Screenshot Name"
-                                        value={paymentForm.receiptName}
-                                        onChange={(e) => setPaymentForm((prev) => ({ ...prev, receiptName: e.target.value }))}
-                                        helperText="Add a receipt filename or screenshot note for this demo flow."
-                                    />
-                                    <FormControlLabel
-                                        control={
-                                            <Checkbox
-                                                checked={paymentForm.acceptTerms}
-                                                onChange={(e) => setPaymentForm((prev) => ({ ...prev, acceptTerms: e.target.checked }))}
-                                            />
-                                        }
-                                        label="I confirm the payment details and agree to the contribution rules."
-                                    />
-                                    <Link component="button" underline="hover" onClick={() => navigate('/help-center')}>
-                                        Need Help?
-                                    </Link>
                                 </>
                             )}
 
                             {paymentStep === 1 && (
                                 <Box sx={{ py: 4, textAlign: 'center' }}>
                                     <CircularProgress sx={{ mb: 2 }} />
-                                    <Typography variant="h6" fontWeight={700}>Processing your payment</Typography>
-                                    <Typography color="text.secondary">
-                                        Creating payment reference, updating contribution history, and preparing SMS confirmation.
-                                    </Typography>
+                                    <Typography variant="h6" fontWeight={700}>Processing payment...</Typography>
+                                    <Typography color="text.secondary">Deducting from your wallet.</Typography>
                                 </Box>
                             )}
 
                             {paymentStep === 2 && activePaymentRecord && (
                                 <Stack spacing={2}>
-                                    <Alert severity="success">
-                                        Payment confirmed. A contribution receipt and SMS confirmation have been prepared for this member.
-                                    </Alert>
+                                    <Alert severity="success">Payment confirmed successfully!</Alert>
                                     <Card variant="outlined">
                                         <CardContent>
-                                            <Stack spacing={1.2}>
-                                                <Typography variant="subtitle1" fontWeight={700}>Transaction Details</Typography>
-                                                <Typography variant="body2">Reference: {activePaymentRecord.reference}</Typography>
-                                                <Typography variant="body2">Status: {activePaymentRecord.status}</Typography>
-                                                <Typography variant="body2">Method: {activePaymentRecord.paymentMethod}</Typography>
-                                                <Typography variant="body2">Amount: {activePaymentRecord.currency} {Number(activePaymentRecord.amount).toLocaleString()}</Typography>
-                                                <Typography variant="body2">
-                                                    Next payment date: {currentMember?.nextPaymentDue ? format(new Date(currentMember.nextPaymentDue), 'MMM dd, yyyy') : 'Scheduled'}
-                                                </Typography>
-                                                <Typography variant="body2">
-                                                    Credit score support: on-time contribution recorded for this member.
-                                                </Typography>
+                                            <Stack spacing={1}>
+                                                <Typography variant="subtitle2" fontWeight={700}>Transaction Details</Typography>
+                                                <Stack direction="row" justifyContent="space-between">
+                                                    <Typography variant="body2" color="text.secondary">Reference</Typography>
+                                                    <Typography variant="body2" fontFamily="monospace">{activePaymentRecord.reference}</Typography>
+                                                </Stack>
+                                                <Stack direction="row" justifyContent="space-between">
+                                                    <Typography variant="body2" color="text.secondary">Amount</Typography>
+                                                    <Typography variant="body2" fontWeight={700}>ETB {Number(activePaymentRecord.amount).toLocaleString()}</Typography>
+                                                </Stack>
+                                                <Stack direction="row" justifyContent="space-between">
+                                                    <Typography variant="body2" color="text.secondary">Status</Typography>
+                                                    <Chip label="Completed" color="success" size="small" />
+                                                </Stack>
                                             </Stack>
                                         </CardContent>
                                     </Card>
@@ -3224,21 +2953,20 @@ const GroupDetails = () => {
                         {paymentStep === 0 && (
                             <>
                                 <Button variant="outlined" onClick={resetPaymentDialog}>Cancel</Button>
-                                <Button onClick={handlePayLater}>Pay Later</Button>
                                 <Button
-                                    onClick={handleMakeContribution}
                                     variant="contained"
-                                    disabled={isSubmitting || !contributionAmount}
+                                    size="large"
+                                    startIcon={<WalletIcon />}
+                                    onClick={handleMakeContribution}
+                                    disabled={isSubmitting}
+                                    fullWidth
                                 >
-                                    {isSubmitting ? <CircularProgress size={24} /> : 'Pay Now'}
+                                    {isSubmitting ? <CircularProgress size={22} /> : `Pay ETB ${Number(expectedContributionAmount || group.rules.defaultContribution || 0).toLocaleString()} from Wallet`}
                                 </Button>
                             </>
                         )}
                         {paymentStep === 2 && (
-                            <>
-                                <Button onClick={() => navigate('/payments')}>Open Payments</Button>
-                                <Button variant="contained" onClick={resetPaymentDialog}>Done</Button>
-                            </>
+                            <Button variant="contained" fullWidth onClick={resetPaymentDialog}>Done</Button>
                         )}
                     </DialogActions>
                 </Dialog>

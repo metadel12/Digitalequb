@@ -640,13 +640,24 @@ export const ThemeProvider = ({
 
     const applyAppearanceSettings = useCallback((appearance) => {
         if (!appearance) return;
-        if (appearance.mode) setMode(appearance.mode);
-        if (appearance.color_scheme) setColorScheme(appearance.color_scheme);
-        if (appearance.primary_color) {
-            setCustomColors((prev) => ({ ...prev, primary: appearance.primary_color }));
+        if (appearance.mode && ['light', 'dark', 'system'].includes(appearance.mode)) {
+            setMode(appearance.mode);
         }
-        if (appearance.secondary_color) {
-            setCustomColors((prev) => ({ ...prev, secondary: appearance.secondary_color }));
+        if (appearance.color_scheme) {
+            setColorScheme(appearance.color_scheme);
+        }
+        // Apply custom colors — only if they look like real hex values
+        const isHex = (v) => v && /^#[0-9a-fA-F]{3,8}$/.test(v);
+        if (isHex(appearance.primary_color) || isHex(appearance.secondary_color)) {
+            setCustomColors((prev) => ({
+                ...prev,
+                ...(isHex(appearance.primary_color) ? { primary: appearance.primary_color } : {}),
+                ...(isHex(appearance.secondary_color) ? { secondary: appearance.secondary_color } : {}),
+            }));
+            // Switch to custom scheme only if a non-default color is set
+            if (isHex(appearance.primary_color) && appearance.primary_color !== '#1976d2') {
+                setColorScheme('custom');
+            }
         }
         if (appearance.font_size) {
             setUiPreference('fontSize', appearance.font_size);
@@ -707,18 +718,7 @@ export const ThemeProvider = ({
             <MuiThemeProvider theme={theme}>
                 <CssBaseline />
                 <GlobalStyles styles={globalStyles} />
-                <AnimatePresence mode="wait">
-                    <motion.div
-                        key={mode + colorScheme}
-                        initial={animationEnabled ? { opacity: 0 } : false}
-                        animate={{ opacity: 1 }}
-                        exit={animationEnabled ? { opacity: 0 } : false}
-                        transition={{ duration: 0.3 }}
-                        style={{ minHeight: '100vh' }}
-                    >
-                        {children}
-                    </motion.div>
-                </AnimatePresence>
+                {children}
                 <Snackbar
                     open={snackbar.open}
                     autoHideDuration={3000}

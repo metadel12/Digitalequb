@@ -189,12 +189,6 @@ const Settings = () => {
         settingsService.writeSettingsDraft({ appearance, notifications, security, language, dataSettings });
     }, [appearance, notifications, security, language, dataSettings]);
 
-    useEffect(() => {
-        if (!loading) {
-            applyAppearanceSettings(appearance);
-        }
-    }, [appearance, applyAppearanceSettings, loading]);
-
     const handleSave = async () => {
         setSaving(true);
         try {
@@ -336,7 +330,6 @@ const Settings = () => {
                 </Typography>
             </Box>
             <Stack direction="row" spacing={1.5} alignItems="flex-start">
-                {hasUnsavedChanges && <Alert severity="info" sx={{ py: 0 }}>Draft changes saved locally</Alert>}
                 <Button variant="outlined" onClick={handleCancel}>Cancel</Button>
                 <Button variant="contained" onClick={handleSave} disabled={saving}>
                     {saving ? <CircularProgress size={22} /> : 'Save Changes'}
