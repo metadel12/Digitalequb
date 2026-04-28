@@ -37,6 +37,28 @@ async def update_current_user(user_update: UserUpdate, current_user=Depends(get_
     return user_to_response(user)
 
 
+@router.patch("/me", response_model=UserResponse)
+async def patch_current_user(user_update: UserUpdate, current_user=Depends(get_current_active_user), db: Database = Depends(get_db)):
+    update_data = user_update.dict(exclude_unset=True)
+    if update_data:
+        db["users"].update_one({"_id": current_user["_id"]}, {"$set": {**update_data, "updated_at": utcnow()}})
+    user = AuthService(db).get_user_by_id(current_user["_id"])
+    return user_to_response(user)
+
+
+@router.delete("/me", status_code=200)
+async def delete_current_user(current_user=Depends(get_current_active_user), db: Database = Depends(get_db)):
+    from app.services.auth_service import SYSTEM_ADMIN_EMAIL
+    if current_user.get("email") == SYSTEM_ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="System admin account cannot be deleted")
+    user_id = current_user["_id"]
+    db["users"].delete_one({"_id": user_id})
+    db["wallets"].delete_many({"user_id": user_id})
+    db["wallet_transactions"].delete_many({"user_id": user_id})
+    db["session_codes"].delete_many({"user_id": user_id})
+    return {"success": True, "message": "Account deleted successfully"}
+
+
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user_by_id(user_id: str, current_user=Depends(get_current_active_user), db: Database = Depends(get_db)):
     user = AuthService(db).get_user_by_id(user_id)

@@ -51,7 +51,6 @@ const initialValues = {
     alternativePhone: '',
     country: 'Ethiopia',
     city: '',
-
     cbeAccountNumber: '',
     cbeAccountName: '',
     password: '',
@@ -97,16 +96,19 @@ const buildErrors = (values, step) => {
             if (result !== true) errors[field] = result;
         });
 
-        // Validate CBE account information
         const cbeAccount = validateRequired(values.cbeAccountNumber, 'CBE Account Number');
-        const cbeName = validateRequired(values.cbeAccountName, 'CBE Account Name');
         if (cbeAccount !== true) errors.cbeAccountNumber = cbeAccount;
-        if (cbeName !== true) errors.cbeAccountName = cbeName;
-
-        // Validate CBE account number format (8-13 digits)
         if (values.cbeAccountNumber && !/^\d{8,13}$/.test(values.cbeAccountNumber)) {
             errors.cbeAccountNumber = 'CBE Account Number must be 8-13 digits';
         }
+
+        // CBE name must match full name
+        const cbeNameResult = validateCBENameMatchesFullName(
+            values.cbeAccountName,
+            values.firstName,
+            values.lastName
+        );
+        if (cbeNameResult !== true) errors.cbeAccountName = cbeNameResult;
     }
 
     if (step === 2) {
@@ -129,53 +131,16 @@ const buildErrors = (values, step) => {
 };
 
 const COUNTRY_CITIES = {
-    Ethiopia: [
-        'Addis Ababa', 'Bahir Dar', 'Dire Dawa', 'Adama (Nazret)', 'Debre Markos',
-        'Mekelle', 'Gondar', 'Hawassa', 'Jimma', 'Dessie', 'Debre Birhan',
-        'Shashamane', 'Bishoftu (Debre Zeit)', 'Arba Minch', 'Hosaena',
-        'Woldia', 'Asella', 'Nekemte', 'Jijiga', 'Gambela',
-        'Axum', 'Lalibela', 'Harar', 'Dilla', 'Wolaita Sodo',
-    ],
-    Kenya: [
-        'Nairobi', 'Mombasa', 'Kisumu', 'Nakuru', 'Eldoret',
-        'Thika', 'Malindi', 'Kitale', 'Garissa', 'Kakamega',
-        'Nyeri', 'Machakos', 'Meru', 'Kericho', 'Embu',
-    ],
-    'United States': [
-        'New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix',
-        'Philadelphia', 'San Antonio', 'San Diego', 'Dallas', 'San Jose',
-        'Austin', 'Jacksonville', 'Fort Worth', 'Columbus', 'Charlotte',
-        'Seattle', 'Denver', 'Boston', 'Atlanta', 'Miami',
-    ],
-    'United Kingdom': [
-        'London', 'Birmingham', 'Manchester', 'Leeds', 'Glasgow',
-        'Sheffield', 'Bradford', 'Edinburgh', 'Liverpool', 'Bristol',
-        'Cardiff', 'Belfast', 'Leicester', 'Nottingham', 'Newcastle',
-    ],
-    Canada: [
-        'Toronto', 'Montreal', 'Vancouver', 'Calgary', 'Edmonton',
-        'Ottawa', 'Winnipeg', 'Quebec City', 'Hamilton', 'Kitchener',
-    ],
-    Australia: [
-        'Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide',
-        'Gold Coast', 'Canberra', 'Newcastle', 'Wollongong', 'Hobart',
-    ],
-    Germany: [
-        'Berlin', 'Hamburg', 'Munich', 'Cologne', 'Frankfurt',
-        'Stuttgart', 'Düsseldorf', 'Leipzig', 'Dortmund', 'Essen',
-    ],
-    France: [
-        'Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice',
-        'Nantes', 'Strasbourg', 'Montpellier', 'Bordeaux', 'Lille',
-    ],
-    'Saudi Arabia': [
-        'Riyadh', 'Jeddah', 'Mecca', 'Medina', 'Dammam',
-        'Khobar', 'Tabuk', 'Abha', 'Buraidah', 'Khamis Mushait',
-    ],
-    'United Arab Emirates': [
-        'Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Ras Al Khaimah',
-        'Fujairah', 'Umm Al Quwain', 'Al Ain',
-    ],
+    Ethiopia: ['Addis Ababa', 'Bahir Dar', 'Dire Dawa', 'Adama (Nazret)', 'Debre Markos', 'Mekelle', 'Gondar', 'Hawassa', 'Jimma', 'Dessie', 'Debre Birhan', 'Shashamane', 'Bishoftu (Debre Zeit)', 'Arba Minch', 'Hosaena', 'Woldia', 'Asella', 'Nekemte', 'Jijiga', 'Gambela', 'Axum', 'Lalibela', 'Harar', 'Dilla', 'Wolaita Sodo'],
+    Kenya: ['Nairobi', 'Mombasa', 'Kisumu', 'Nakuru', 'Eldoret', 'Thika', 'Malindi', 'Kitale', 'Garissa', 'Kakamega', 'Nyeri', 'Machakos', 'Meru', 'Kericho', 'Embu'],
+    'United States': ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix', 'Philadelphia', 'San Antonio', 'San Diego', 'Dallas', 'San Jose', 'Austin', 'Jacksonville', 'Fort Worth', 'Columbus', 'Charlotte', 'Seattle', 'Denver', 'Boston', 'Atlanta', 'Miami'],
+    'United Kingdom': ['London', 'Birmingham', 'Manchester', 'Leeds', 'Glasgow', 'Sheffield', 'Bradford', 'Edinburgh', 'Liverpool', 'Bristol', 'Cardiff', 'Belfast', 'Leicester', 'Nottingham', 'Newcastle'],
+    Canada: ['Toronto', 'Montreal', 'Vancouver', 'Calgary', 'Edmonton', 'Ottawa', 'Winnipeg', 'Quebec City', 'Hamilton', 'Kitchener'],
+    Australia: ['Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide', 'Gold Coast', 'Canberra', 'Newcastle', 'Wollongong', 'Hobart'],
+    Germany: ['Berlin', 'Hamburg', 'Munich', 'Cologne', 'Frankfurt', 'Stuttgart', 'Düsseldorf', 'Leipzig', 'Dortmund', 'Essen'],
+    France: ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Strasbourg', 'Montpellier', 'Bordeaux', 'Lille'],
+    'Saudi Arabia': ['Riyadh', 'Jeddah', 'Mecca', 'Medina', 'Dammam', 'Khobar', 'Tabuk', 'Abha', 'Buraidah', 'Khamis Mushait'],
+    'United Arab Emirates': ['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Ras Al Khaimah', 'Fujairah', 'Umm Al Quwain', 'Al Ain'],
 };
 
 const COUNTRIES = Object.keys(COUNTRY_CITIES);
@@ -194,6 +159,8 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
         () => joinFullName(form.values.firstName, form.values.lastName),
         [form.values.firstName, form.values.lastName]
     );
+
+    const expectedCBEName = `${form.values.firstName.trim()} ${form.values.lastName.trim()}`.trim();
 
     const handleSocialClick = async (provider) => {
         if (!['google', 'apple'].includes(provider)) {
@@ -224,7 +191,7 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
         } catch { /* silent */ }
     };
 
-    const handleAccountBlur = async () => {
+    const handleAccountNumberBlur = async () => {
         const acct = form.values.cbeAccountNumber.trim();
         form.setFieldTouched('cbeAccountNumber');
         if (!acct || !/^\d{8,13}$/.test(acct)) return;
@@ -234,10 +201,22 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
         } catch { /* silent */ }
     };
 
+    const handleCBENameBlur = () => {
+        form.setFieldTouched('cbeAccountName');
+        // Trigger re-validation immediately on blur
+        const result = validateCBENameMatchesFullName(
+            form.values.cbeAccountName,
+            form.values.firstName,
+            form.values.lastName
+        );
+        if (result !== true) {
+            form.setErrors((prev) => ({ ...prev, cbeAccountName: result }));
+        }
+    };
+
     const handleNext = async () => {
         if (!form.validateForm()) return;
 
-        // On step 1 run all async duplicate checks before advancing
         if (activeStep === 1) {
             const newDupes = {};
 
@@ -260,6 +239,7 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
             setDuplicateErrors(newDupes);
             if (Object.keys(newDupes).length > 0) return;
 
+            // Final CBE name check
             const cbeMatch = validateCBENameMatchesFullName(
                 form.values.cbeAccountName,
                 form.values.firstName,
@@ -324,14 +304,10 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
     return (
         <Stack spacing={3}>
             <SocialButtons onClick={handleSocialClick} disabled={submitting} loadingProvider={socialLoading} />
-            <Divider>
-                <Chip label="Secure Registration" size="small" />
-            </Divider>
+            <Divider><Chip label="Secure Registration" size="small" /></Divider>
             <Stepper activeStep={activeStep} alternativeLabel sx={{ display: { xs: 'none', md: 'flex' } }}>
                 {registerSteps.map((step) => (
-                    <Step key={step.id}>
-                        <StepLabel>{step.label}</StepLabel>
-                    </Step>
+                    <Step key={step.id}><StepLabel>{step.label}</StepLabel></Step>
                 ))}
             </Stepper>
             <Box>
@@ -339,11 +315,10 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
                     Step {activeStep + 1} of {registerSteps.length}
                 </Typography>
                 <Typography variant="h6">{registerSteps[activeStep].label}</Typography>
-                <Typography color="text.secondary" variant="body2">
-                    {registerSteps[activeStep].caption}
-                </Typography>
+                <Typography color="text.secondary" variant="body2">{registerSteps[activeStep].caption}</Typography>
             </Box>
             {form.errors.submit && <Alert severity="error">{form.errors.submit}</Alert>}
+
             {activeStep === 0 && (
                 <Stack spacing={2.5}>
                     <Grid container spacing={2}>
@@ -362,6 +337,7 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
                     </TextField>
                 </Stack>
             )}
+
             {activeStep === 1 && (
                 <Stack spacing={2.5}>
                     <TextField
@@ -386,10 +362,7 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
                     <Grid container spacing={2}>
                         <Grid size={{ xs: 12, sm: 6 }}>
                             <TextField select label="Country" fullWidth {...fieldProps('country')}
-                                onChange={(e) => {
-                                    form.setFieldValue('country', e.target.value);
-                                    form.setFieldValue('city', '');
-                                }}
+                                onChange={(e) => { form.setFieldValue('country', e.target.value); form.setFieldValue('city', ''); }}
                             >
                                 {COUNTRIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                             </TextField>
@@ -406,25 +379,46 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
                     <Divider sx={{ my: 2 }}>
                         <Chip label="Commercial Bank of Ethiopia Account (Required)" size="small" color="primary" />
                     </Divider>
+
                     <TextField
                         label="CBE Account Number"
                         fullWidth
                         inputProps={{ maxLength: 13 }}
                         value={form.values.cbeAccountNumber}
                         onChange={(e) => form.setFieldValue('cbeAccountNumber', e.target.value)}
-                        onBlur={handleAccountBlur}
+                        onBlur={handleAccountNumberBlur}
                         error={Boolean((form.touched.cbeAccountNumber && form.errors.cbeAccountNumber) || duplicateErrors.cbeAccountNumber)}
                         helperText={(form.touched.cbeAccountNumber && form.errors.cbeAccountNumber) || duplicateErrors.cbeAccountNumber || 'Enter your 8-13 digit CBE account number'}
                     />
+
                     <TextField
                         label="CBE Account Name"
                         fullWidth
                         inputProps={{ maxLength: 100 }}
-                        helperText="Enter the full name registered with your CBE account"
-                        {...fieldProps('cbeAccountName')}
+                        value={form.values.cbeAccountName}
+                        onChange={(e) => form.setFieldValue('cbeAccountName', e.target.value)}
+                        onBlur={handleCBENameBlur}
+                        error={Boolean(form.touched.cbeAccountName && form.errors.cbeAccountName)}
+                        helperText={
+                            (form.touched.cbeAccountName && form.errors.cbeAccountName) ||
+                            (expectedCBEName ? `Must match exactly: "${expectedCBEName}"` : 'Must match your full name on your CBE account')
+                        }
+                        InputProps={{
+                            endAdornment: expectedCBEName && (
+                                <Button
+                                    type="button"
+                                    size="small"
+                                    sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                                    onClick={() => form.setFieldValue('cbeAccountName', expectedCBEName)}
+                                >
+                                    Use my name
+                                </Button>
+                            ),
+                        }}
                     />
                 </Stack>
             )}
+
             {activeStep === 2 && (
                 <Stack spacing={2.5}>
                     <TextField label="Password" type="password" fullWidth autoComplete="new-password" {...fieldProps('password')} />
@@ -460,6 +454,7 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
                     </Stack>
                 </Stack>
             )}
+
             {activeStep === 3 && (
                 <Stack spacing={3}>
                     <Alert severity="info">
@@ -482,6 +477,7 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
                     )}
                 </Stack>
             )}
+
             <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1.5} justifyContent="space-between">
                 <Button variant="outlined" onClick={handleBack}>
                     {activeStep === 0 ? 'Back to sign in' : 'Back'}

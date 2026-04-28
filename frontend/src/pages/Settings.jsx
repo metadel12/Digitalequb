@@ -10,6 +10,7 @@ import {
     DialogContent,
     DialogTitle,
     Stack,
+    TextField,
     Typography,
 } from '@mui/material';
 import {
@@ -34,6 +35,7 @@ import SettingsLayout from '../components/settings/SettingsLayout';
 import settingsService from '../services/settingsService';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme as useAppTheme } from '../context/ThemeContext';
+import api from '../services/api';
 
 const initialState = {
     profile: {
@@ -118,13 +120,15 @@ const getErrorMessage = (error) => {
 
 const Settings = () => {
     const { enqueueSnackbar } = useSnackbar();
-    const { user } = useAuth();
+    const { user, logout } = useAuth();
     const { applyAppearanceSettings } = useAppTheme();
 
     const [activeSection, setActiveSection] = useState('profile');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleteConfirmText, setDeleteConfirmText] = useState('');
+    const [deleting, setDeleting] = useState(false);
     const [profile, setProfile] = useState(initialState.profile);
     const [appearance, setAppearance] = useState(initialState.appearance);
     const [notifications, setNotifications] = useState(initialState.notifications);
@@ -319,6 +323,25 @@ const Settings = () => {
         }
     };
 
+    const handleDeleteAccount = async () => {
+        if (deleteConfirmText !== 'DELETE') {
+            enqueueSnackbar('Please type DELETE to confirm', { variant: 'warning' });
+            return;
+        }
+        setDeleting(true);
+        try {
+            await api.delete('/users/me');
+            enqueueSnackbar('Account deleted successfully', { variant: 'success' });
+            setConfirmDelete(false);
+            await logout();
+        } catch (error) {
+            const msg = error?.response?.data?.detail || 'Failed to delete account. Please try again.';
+            enqueueSnackbar(msg, { variant: 'error' });
+        } finally {
+            setDeleting(false);
+        }
+    };
+
     const header = (
         <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
             <Box>
@@ -396,17 +419,35 @@ const Settings = () => {
                 </SettingsLayout>
             </Container>
 
-            <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>Delete Account</DialogTitle>
+            <Dialog open={confirmDelete} onClose={() => { setConfirmDelete(false); setDeleteConfirmText(''); }} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ color: 'error.main' }}>Delete Account</DialogTitle>
                 <DialogContent>
-                    <Typography>
-                        Delete account is currently a protected flow. This dialog is in place so we can connect the final 30-day grace process safely.
-                    </Typography>
+                    <Stack spacing={2} sx={{ pt: 1 }}>
+                        <Alert severity="error">
+                            This action is <strong>permanent and irreversible</strong>. Your account, wallet, groups, and all data will be deleted immediately.
+                        </Alert>
+                        <Typography variant="body2" color="text.secondary">
+                            Type <strong>DELETE</strong> below to confirm you want to permanently delete your account.
+                        </Typography>
+                        <TextField
+                            fullWidth
+                            label='Type "DELETE" to confirm'
+                            value={deleteConfirmText}
+                            onChange={(e) => setDeleteConfirmText(e.target.value)}
+                            error={deleteConfirmText.length > 0 && deleteConfirmText !== 'DELETE'}
+                            helperText={deleteConfirmText.length > 0 && deleteConfirmText !== 'DELETE' ? 'Must type DELETE exactly' : ' '}
+                        />
+                    </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
-                    <Button color="error" variant="contained" onClick={() => setConfirmDelete(false)}>
-                        Understood
+                    <Button onClick={() => { setConfirmDelete(false); setDeleteConfirmText(''); }}>Cancel</Button>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        onClick={handleDeleteAccount}
+                        disabled={deleteConfirmText !== 'DELETE' || deleting}
+                    >
+                        {deleting ? <CircularProgress size={20} color="inherit" /> : 'Permanently Delete Account'}
                     </Button>
                 </DialogActions>
             </Dialog>

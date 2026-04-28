@@ -64,9 +64,14 @@ export function validatePasswordMatch(password, confirmPassword) {
 
 export function validateCBENameMatchesFullName(cbeName, firstName, lastName) {
     if (!cbeName?.trim()) return 'CBE Account Name is required';
-    const full = `${firstName} ${lastName}`.trim().toLowerCase().replace(/\s+/g, ' ');
-    const cbe = cbeName.trim().toLowerCase().replace(/\s+/g, ' ');
-    if (cbe !== full) return 'CBE Account Name must match your registered full name (First name + Last name)';
+    // Normalize: trim, lowercase, collapse multiple spaces to single space
+    const normalize = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const expectedFull = `${firstName?.trim() || ''} ${lastName?.trim() || ''}`.trim();
+    const full = normalize(expectedFull);
+    const cbe = normalize(cbeName);
+    if (cbe !== full) {
+        return `CBE Account Name must match exactly. Expected: "${expectedFull}" (case-insensitive)`;
+    }
     return true;
 }
 
