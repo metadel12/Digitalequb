@@ -82,14 +82,20 @@ def create_application() -> FastAPI:
             "mongodb": "connected" if mongo_healthy else "unavailable",
         }
 
+    cors_kwargs = {
+        "allow_origins": settings.CORS_ORIGINS,
+        "allow_credentials": True,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
+    if settings.DEBUG:
+        cors_kwargs["allow_origin_regex"] = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
     app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        TrustedHostMiddleware,
+        allowed_hosts=["*"],
     )
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
     from .api.v1 import admin, auth, dashboard, groups, notifications, payments, settings as settings_router, transactions, users
     from .routers import profile, wallet

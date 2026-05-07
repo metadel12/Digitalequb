@@ -6,9 +6,11 @@ import {
     Container,
     Divider,
     Grid,
+    IconButton,
     Link,
     Paper,
     Stack,
+    Tooltip,
     Typography,
     alpha,
 } from '@mui/material';
@@ -16,12 +18,31 @@ import {
     ArrowForward as ArrowForwardIcon,
     Chat as ChatIcon,
     Email as EmailIcon,
+    Facebook as FacebookIcon,
     Groups as GroupsIcon,
     HelpOutline as HelpOutlineIcon,
+    Instagram as InstagramIcon,
+    LinkedIn as LinkedInIcon,
     Notifications as NotificationsIcon,
     Payments as PaymentsIcon,
     Speed as SpeedIcon,
+    Telegram as TelegramIcon,
+    YouTube as YouTubeIcon,
 } from '@mui/icons-material';
+
+const SOCIAL = [
+    { label: 'Telegram', icon: <TelegramIcon />, href: 'https://t.me/digiequb', color: '#229ED9' },
+    { label: 'Facebook', icon: <FacebookIcon />, href: 'https://facebook.com/digiequb', color: '#1877F2' },
+    { label: 'Instagram', icon: <InstagramIcon />, href: 'https://instagram.com/digiequb', color: '#E1306C' },
+    { label: 'LinkedIn', icon: <LinkedInIcon />, href: 'https://linkedin.com/company/digiequb', color: '#0A66C2' },
+    { label: 'YouTube', icon: <YouTubeIcon />, href: 'https://youtube.com/@digiequb', color: '#FF0000' },
+    {
+        label: 'X (Twitter)',
+        icon: <Typography sx={{ fontSize: 18, fontWeight: 900, lineHeight: 1 }}>𝕏</Typography>,
+        href: 'https://x.com/digiequb',
+        color: '#000000',
+    },
+];
 
 const footerColumns = [
     {
@@ -219,6 +240,35 @@ const Footer = ({
             </Grid>
 
             <Divider sx={{ my: 3, borderColor: alpha('#ffffff', 0.12) }} />
+
+            {/* Social Media Icons */}
+            <Stack direction="row" spacing={1} sx={{ mb: 2.5 }}>
+                {SOCIAL.map(({ label, icon, href, color }) => (
+                    <Tooltip key={label} title={label}>
+                        <IconButton
+                            component="a"
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            size="small"
+                            sx={{
+                                color: 'rgba(255,255,255,0.75)',
+                                bgcolor: 'rgba(255,255,255,0.08)',
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                transition: 'all 0.2s',
+                                '&:hover': {
+                                    bgcolor: color,
+                                    color: '#fff',
+                                    borderColor: color,
+                                    transform: 'translateY(-2px)',
+                                },
+                            }}
+                        >
+                            {icon}
+                        </IconButton>
+                    </Tooltip>
+                ))}
+            </Stack>
 
             <Stack
                 direction={{ xs: 'column', md: 'row' }}
