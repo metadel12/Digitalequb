@@ -53,6 +53,8 @@ const initialValues = {
     city: '',
     cbeAccountNumber: '',
     cbeAccountName: '',
+    propertyFile: null,
+    wealthFiles: [],
     password: '',
     confirmPassword: '',
     securityQuestion: 'first_teacher',
@@ -109,6 +111,9 @@ const buildErrors = (values, step) => {
             values.lastName
         );
         if (cbeNameResult !== true) errors.cbeAccountName = cbeNameResult;
+
+        if (!values.propertyFile) errors.propertyFile = 'House map or property file is required';
+        if (!values.wealthFiles?.length) errors.wealthFiles = 'Upload at least one wealth document';
     }
 
     if (step === 2) {
@@ -214,6 +219,14 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
         }
     };
 
+    const handlePropertyFileChange = (event) => {
+        form.setFieldValue('propertyFile', event.target.files?.[0] || null);
+    };
+
+    const handleWealthFilesChange = (event) => {
+        form.setFieldValue('wealthFiles', Array.from(event.target.files || []));
+    };
+
     const handleNext = async () => {
         if (!form.validateForm()) return;
 
@@ -258,18 +271,17 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
 
         setSubmitting(true);
         try {
-            const payload = {
-                full_name: fullName,
-                email: form.values.email.trim(),
-                phone_number: normalizePhoneNumber(form.values.countryCode, form.values.phoneNumber),
-                password: form.values.password,
-                confirm_password: form.values.confirmPassword,
-                bank_account: {
-                    bank_name: 'Commercial Bank of Ethiopia',
-                    account_number: form.values.cbeAccountNumber.trim(),
-                    account_name: form.values.cbeAccountName.trim(),
-                },
-            };
+            const payload = new FormData();
+            payload.append('full_name', fullName);
+            payload.append('email', form.values.email.trim());
+            payload.append('phone_number', normalizePhoneNumber(form.values.countryCode, form.values.phoneNumber));
+            payload.append('password', form.values.password);
+            payload.append('confirm_password', form.values.confirmPassword);
+            payload.append('bank_name', 'Commercial Bank of Ethiopia');
+            payload.append('bank_account_number', form.values.cbeAccountNumber.trim());
+            payload.append('bank_account_name', form.values.cbeAccountName.trim());
+            payload.append('property_file', form.values.propertyFile);
+            form.values.wealthFiles.forEach((file) => payload.append('wealth_files', file));
 
             const result = await auth.register(payload);
 
@@ -416,6 +428,43 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
                             ),
                         }}
                     />
+
+                    <Divider sx={{ my: 2 }}>
+                        <Chip label="Property & Wealth Files (Required)" size="small" color="primary" />
+                    </Divider>
+
+                    <Stack spacing={1}>
+                        <Button variant="outlined" component="label">
+                            Upload house map / property file
+                            <input
+                                hidden
+                                type="file"
+                                accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                                onChange={handlePropertyFileChange}
+                            />
+                        </Button>
+                        <Typography variant="caption" color={form.errors.propertyFile ? 'error' : 'text.secondary'}>
+                            {form.values.propertyFile?.name || form.errors.propertyFile || 'PDF, image, DOC, or DOCX up to 10MB'}
+                        </Typography>
+                    </Stack>
+
+                    <Stack spacing={1}>
+                        <Button variant="outlined" component="label">
+                            Upload wealth documents
+                            <input
+                                hidden
+                                multiple
+                                type="file"
+                                accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                                onChange={handleWealthFilesChange}
+                            />
+                        </Button>
+                        <Typography variant="caption" color={form.errors.wealthFiles ? 'error' : 'text.secondary'}>
+                            {form.values.wealthFiles.length
+                                ? form.values.wealthFiles.map((file) => file.name).join(', ')
+                                : form.errors.wealthFiles || 'Upload bank, asset, income, or other wealth proof files'}
+                        </Typography>
+                    </Stack>
                 </Stack>
             )}
 

@@ -30,6 +30,8 @@ export default function SocialContactDetails() {
     const [phoneNumber, setPhoneNumber] = useState('');
     const [country, setCountry] = useState('Ethiopia');
     const [city, setCity] = useState('');
+    const [propertyFile, setPropertyFile] = useState(null);
+    const [wealthFiles, setWealthFiles] = useState([]);
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
 
@@ -41,6 +43,8 @@ export default function SocialContactDetails() {
         if (c !== true) e.country = c;
         const ci = validateRequired(city, 'City');
         if (ci !== true) e.city = ci;
+        if (!propertyFile) e.propertyFile = 'House map or property file is required';
+        if (!wealthFiles.length) e.wealthFiles = 'Upload at least one wealth document';
         setErrors(e);
         return Object.keys(e).length === 0;
     };
@@ -51,6 +55,10 @@ export default function SocialContactDetails() {
         try {
             const phone = `${countryCode}${phoneNumber}`;
             await api.patch('/users/me', { phone_number: phone, address: { country, city } });
+            const uploads = new FormData();
+            uploads.append('property_file', propertyFile);
+            wealthFiles.forEach((file) => uploads.append('wealth_files', file));
+            await api.post('/auth/registration-files', uploads);
             updateUser({ phone_number: phone, address: { country, city } });
             navigate('/dashboard', { replace: true });
         } catch (err) {
@@ -109,6 +117,41 @@ export default function SocialContactDetails() {
                         <MenuItem key={c} value={c}>{c}</MenuItem>
                     ))}
                 </TextField>
+
+                <Divider><Chip label="Property & Wealth Files" size="small" /></Divider>
+
+                <Stack spacing={1}>
+                    <Button variant="outlined" component="label">
+                        Upload house map / property file
+                        <input
+                            hidden
+                            type="file"
+                            accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                            onChange={(e) => setPropertyFile(e.target.files?.[0] || null)}
+                        />
+                    </Button>
+                    <Typography variant="caption" color={errors.propertyFile ? 'error' : 'text.secondary'}>
+                        {propertyFile?.name || errors.propertyFile || 'PDF, image, DOC, or DOCX up to 10MB'}
+                    </Typography>
+                </Stack>
+
+                <Stack spacing={1}>
+                    <Button variant="outlined" component="label">
+                        Upload wealth documents
+                        <input
+                            hidden
+                            multiple
+                            type="file"
+                            accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                            onChange={(e) => setWealthFiles(Array.from(e.target.files || []))}
+                        />
+                    </Button>
+                    <Typography variant="caption" color={errors.wealthFiles ? 'error' : 'text.secondary'}>
+                        {wealthFiles.length
+                            ? wealthFiles.map((file) => file.name).join(', ')
+                            : errors.wealthFiles || 'Upload bank, asset, income, or other wealth proof files'}
+                    </Typography>
+                </Stack>
 
                 <Button
                     variant="contained"

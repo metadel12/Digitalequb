@@ -1,9 +1,12 @@
+import shutil
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from pymongo.database import Database
 
 from app.core.database import get_db
 from app.core.mongo_utils import utcnow
-from app.dependencies import get_current_active_user
+from app.dependencies import get_current_active_user, get_current_user
 from app.schemas.user import UserResponse, UserUpdate
 from app.services.auth_service import AuthService, user_to_response
 
@@ -47,7 +50,7 @@ async def patch_current_user(user_update: UserUpdate, current_user=Depends(get_c
 
 
 @router.delete("/me", status_code=200)
-async def delete_current_user(current_user=Depends(get_current_active_user), db: Database = Depends(get_db)):
+async def delete_current_user(current_user=Depends(get_current_user), db: Database = Depends(get_db)):
     from app.services.auth_service import SYSTEM_ADMIN_EMAIL
     if current_user.get("email") == SYSTEM_ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="System admin account cannot be deleted")
@@ -56,6 +59,10 @@ async def delete_current_user(current_user=Depends(get_current_active_user), db:
     db["wallets"].delete_many({"user_id": user_id})
     db["wallet_transactions"].delete_many({"user_id": user_id})
     db["session_codes"].delete_many({"user_id": user_id})
+    upload_root = Path(__file__).resolve().parents[3] / "uploads" / "registration"
+    for path in upload_root.glob(f"*_{user_id}"):
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
     return {"success": True, "message": "Account deleted successfully"}
 
 

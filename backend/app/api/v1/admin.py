@@ -1,6 +1,8 @@
 from typing import Any, Dict, Optional
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pymongo.database import Database
 
@@ -9,6 +11,8 @@ from ...dependencies import get_current_active_user
 from ...services.admin_service import AdminService
 
 router = APIRouter()
+APP_ROOT = Path(__file__).resolve().parents[3]
+REGISTRATION_UPLOAD_ROOT = APP_ROOT / "uploads" / "registration"
 
 
 class PaymentVerifyPayload(BaseModel):
@@ -96,6 +100,27 @@ async def verify_payment(
     return result
 
 
+@router.get("/transactions/stats")
+async def get_transaction_stats(current_user=Depends(get_current_active_user), db: Database = Depends(get_db)):
+    service = _get_admin_service(db)
+    _require_single_admin(current_user, service)
+    return service.get_transaction_stats()
+
+
+@router.get("/transactions")
+async def get_transaction_history(
+    transaction_type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 200,
+    skip: int = 0,
+    current_user=Depends(get_current_active_user),
+    db: Database = Depends(get_db),
+):
+    service = _get_admin_service(db)
+    _require_single_admin(current_user, service)
+    return service.get_transaction_history(transaction_type=transaction_type, status=status, limit=limit, skip=skip)
+
+
 @router.get("/users/pending")
 async def get_pending_users(
     limit: int = 50,
@@ -126,6 +151,47 @@ async def get_user_logs(current_user=Depends(get_current_active_user), db: Datab
     service = _get_admin_service(db)
     _require_single_admin(current_user, service)
     return service.get_user_action_logs()
+
+
+@router.get("/users/{user_id}/registration-files/{category}/{stored_name}")
+async def download_registration_file(
+    user_id: str,
+    category: str,
+    stored_name: str,
+    current_user=Depends(get_current_active_user),
+    db: Database = Depends(get_db),
+):
+    service = _get_admin_service(db)
+    _require_single_admin(current_user, service)
+
+    user = db["users"].find_one({"_id": str(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    registration_files = user.get("registration_files") or {}
+    candidates = []
+    if registration_files.get("property_file"):
+        candidates.append(registration_files["property_file"])
+    candidates.extend(registration_files.get("wealth_files") or [])
+    match = next(
+        (
+            item for item in candidates
+            if item.get("category") == category and item.get("stored_name") == stored_name
+        ),
+        None,
+    )
+    if not match:
+        raise HTTPException(status_code=404, detail="Registration file not found")
+
+    target = (APP_ROOT / match.get("path", "")).resolve()
+    if not str(target).startswith(str(REGISTRATION_UPLOAD_ROOT.resolve())) or not target.exists():
+        raise HTTPException(status_code=404, detail="Registration file is missing from storage")
+
+    return FileResponse(
+        path=target,
+        filename=match.get("original_name") or stored_name,
+        media_type=match.get("content_type") or "application/octet-stream",
+    )
 
 
 @router.post("/users/approve")

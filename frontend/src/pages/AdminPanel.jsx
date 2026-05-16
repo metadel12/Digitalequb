@@ -3,12 +3,12 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import AdminLayout from '../components/admin/AdminLayout';
 import GroupOversight from '../components/admin/GroupOversight';
+import TransactionMonitor from '../components/admin/TransactionMonitor';
 import UserManagement from '../components/admin/UserManagement';
 import WinnerManager from '../components/admin/WinnerManager';
 import AdminTrusteeDashboard from './Admin/AdminTrusteeDashboard';
 import Payments from './Payments';
 import CreditScore from './CreditScore';
-import Transactions from './Transactions';
 
 const PlaceholderPage = ({ title, description }) => (
     <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -40,7 +40,7 @@ const AdminPanel = () => {
                         </div>
                     }
                 />
-                <Route path="transactions" element={<Transactions />} />
+                <Route path="transactions" element={<TransactionMonitor />} />
                 <Route path="payments" element={<Payments />} />
                 <Route path="credit-score" element={<CreditScore />} />
                 <Route path="users" element={<UserManagement />} />

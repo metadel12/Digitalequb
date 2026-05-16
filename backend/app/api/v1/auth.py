@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
+import re
+import shutil
 from typing import Any
 from urllib.parse import urlencode
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
 from pymongo.database import Database
 
@@ -43,8 +46,108 @@ from ...services.auth_service import AuthService, SYSTEM_ADMIN_EMAIL, user_to_re
 from ...services.cbe_service import CommercialBankOfEthiopiaService
 from ...services.otp_service import OTPService
 from ...services.social_auth_service import SocialAuthService
+from ...utils.validators import validate_registration_email
 
 router = APIRouter()
+
+UPLOAD_ROOT = Path(__file__).resolve().parents[3] / "uploads" / "registration"
+MAX_REGISTRATION_FILE_SIZE = 10 * 1024 * 1024
+ALLOWED_REGISTRATION_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".doc", ".docx"}
+
+
+def _safe_upload_name(filename: str, default: str = "document") -> str:
+    name = Path(filename or default).name
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(name).stem).strip("._") or "document"
+    suffix = Path(name).suffix.lower()
+    return f"{stem[:80]}{suffix}"
+
+
+def _is_upload(value: Any) -> bool:
+    return hasattr(value, "filename") and hasattr(value, "read")
+
+
+async def _save_registration_upload(file: UploadFile, user_id: str, user_name: str, category: str) -> dict[str, Any]:
+    filename = _safe_upload_name(file.filename or "")
+    extension = Path(filename).suffix.lower()
+    if extension not in ALLOWED_REGISTRATION_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"{category} must be PDF, image, DOC, or DOCX")
+
+    user_folder = f"{_safe_upload_name(user_name, 'user').removesuffix(Path(user_name or '').suffix)[:80]}_{user_id}"
+    upload_dir = UPLOAD_ROOT / user_folder / category
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    unique_name = f"{new_id()}_{filename}"
+    target = upload_dir / unique_name
+
+    size = 0
+    with target.open("wb") as buffer:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_REGISTRATION_FILE_SIZE:
+                buffer.close()
+                target.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=f"{category} file must be 10MB or smaller")
+            buffer.write(chunk)
+
+    return {
+        "user_id": str(user_id),
+        "user_name": user_name,
+        "user_folder": user_folder,
+        "category": category,
+        "original_name": file.filename or filename,
+        "stored_name": unique_name,
+        "content_type": file.content_type,
+        "size": size,
+        "path": str(target.relative_to(UPLOAD_ROOT.parent.parent)),
+        "uploaded_at": utcnow(),
+    }
+
+
+async def _save_registration_files(
+    user_id: str,
+    user_name: str,
+    property_file: UploadFile | None = None,
+    wealth_files: list[UploadFile] | None = None,
+) -> dict[str, Any] | None:
+    files = {"user_id": str(user_id), "user_name": user_name, "property_file": None, "wealth_files": []}
+    if property_file and property_file.filename:
+        files["property_file"] = await _save_registration_upload(property_file, user_id, user_name, "property")
+    for wealth_file in wealth_files or []:
+        if wealth_file and wealth_file.filename:
+            files["wealth_files"].append(await _save_registration_upload(wealth_file, user_id, user_name, "wealth"))
+    if not files["property_file"] and not files["wealth_files"]:
+        return None
+    return files
+
+
+def _cleanup_registration_files(user_id: str) -> None:
+    shutil.rmtree(UPLOAD_ROOT / str(user_id), ignore_errors=True)
+
+
+async def _parse_registration_request(request: Request) -> tuple[UserCreate, UploadFile | None, list[UploadFile]]:
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" not in content_type:
+        try:
+            return UserCreate(**await request.json()), None, []
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="File uploads must be sent as multipart/form-data") from exc
+
+    form = await request.form()
+    bank_account = {
+        "bank_name": str(form.get("bank_name") or "Commercial Bank of Ethiopia"),
+        "account_number": str(form.get("bank_account_number") or ""),
+        "account_name": str(form.get("bank_account_name") or ""),
+    }
+    user_data = UserCreate(
+        full_name=str(form.get("full_name") or ""),
+        email=str(form.get("email") or ""),
+        phone_number=str(form.get("phone_number") or ""),
+        password=str(form.get("password") or ""),
+        confirm_password=str(form.get("confirm_password") or ""),
+        bank_account=bank_account,
+    )
+    wealth_files = [item for item in form.getlist("wealth_files") if _is_upload(item)]
+    property_file = form.get("property_file")
+    return user_data, property_file if _is_upload(property_file) else None, wealth_files
 
 
 def _frontend_url(path: str) -> str:
@@ -163,8 +266,12 @@ async def _send_registration_notifications(db: Database, user_id: str, email: st
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserCreate, background_tasks: BackgroundTasks, db: Database = Depends(get_db)) -> Any:
+async def register(request: Request, background_tasks: BackgroundTasks, db: Database = Depends(get_db)) -> Any:
+    user_data, property_file, wealth_files = await _parse_registration_request(request)
     auth_service = AuthService(db)
+    email_ok, email_error = validate_registration_email(user_data.email)
+    if not email_ok:
+        raise HTTPException(status_code=400, detail=email_error)
     if user_data.email.strip().lower() == SYSTEM_ADMIN_EMAIL:
         raise HTTPException(status_code=400, detail="This email is reserved for the system admin")
     if auth_service.get_user_by_email(user_data.email):
@@ -173,6 +280,10 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, db:
         raise HTTPException(status_code=400, detail="Phone number already registered")
     if not user_data.bank_account or not user_data.bank_account.account_number or not user_data.bank_account.account_name:
         raise HTTPException(status_code=400, detail="Commercial Bank of Ethiopia account number and account name are required")
+    if "multipart/form-data" in (request.headers.get("content-type") or "").lower() and (
+        not property_file or not property_file.filename or not wealth_files
+    ):
+        raise HTTPException(status_code=400, detail="Property file and at least one wealth document are required")
 
     bank_service = CommercialBankOfEthiopiaService(db)
     verification = await bank_service.verify_account_ownership(
@@ -192,6 +303,18 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, db:
         initial_balance=100000.0,
     )
     user = auth_service.create_user(user_data)
+    try:
+        registration_files = await _save_registration_files(user["_id"], user.get("full_name", ""), property_file, wealth_files)
+        if registration_files:
+            db["users"].update_one(
+                {"_id": user["_id"]},
+                {"$set": {"registration_files": registration_files, "updated_at": utcnow()}},
+            )
+            user = auth_service.get_user_by_id(user["_id"]) or user
+    except Exception:
+        _cleanup_registration_files(user["_id"])
+        db["users"].delete_one({"_id": user["_id"]})
+        raise
     background_tasks.add_task(_send_registration_notifications, db, user["_id"], user["email"])
     return user_to_response(user)
 
@@ -505,7 +628,20 @@ async def onboarding_status(current_user=Depends(get_current_user)) -> Any:
 
 @router.post("/complete-profile")
 async def complete_profile(request: Request, current_user=Depends(get_current_user), db: Database = Depends(get_db)) -> Any:
-    body = await request.json()
+    content_type = (request.headers.get("content-type") or "").lower()
+    property_file = None
+    wealth_files: list[UploadFile] = []
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        body = dict(form)
+        maybe_property = form.get("property_file")
+        property_file = maybe_property if _is_upload(maybe_property) else None
+        wealth_files = [item for item in form.getlist("wealth_files") if _is_upload(item)]
+    else:
+        try:
+            body = await request.json()
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="File uploads must be sent as multipart/form-data") from exc
     full_name = (body.get("full_name") or "").strip()
     account_number = (body.get("account_number") or "").strip()
     account_name = (body.get("account_name") or "").strip()
@@ -530,9 +666,7 @@ async def complete_profile(request: Request, current_user=Depends(get_current_us
         account_number, account_name, CommercialBankOfEthiopiaService.BANK_NAME, initial_balance=100000.0
     )
 
-    db["users"].update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {
+    update_fields = {
             "full_name": full_name,
             "bank_account": {
                 "bank_name": CommercialBankOfEthiopiaService.BANK_NAME,
@@ -544,9 +678,34 @@ async def complete_profile(request: Request, current_user=Depends(get_current_us
                 "verified_by_bank": True,
             },
             "updated_at": utcnow(),
-        }},
-    )
+    }
+    registration_files = await _save_registration_files(current_user["_id"], full_name, property_file, wealth_files)
+    if registration_files:
+        update_fields["registration_files"] = registration_files
+
+    db["users"].update_one({"_id": current_user["_id"]}, {"$set": update_fields})
     return {"success": True, "message": "Profile completed successfully"}
+
+
+@router.post("/registration-files")
+async def upload_registration_files(request: Request, current_user=Depends(get_current_user), db: Database = Depends(get_db)) -> Any:
+    form = await request.form()
+    maybe_property = form.get("property_file")
+    property_file = maybe_property if _is_upload(maybe_property) else None
+    wealth_files = [item for item in form.getlist("wealth_files") if _is_upload(item)]
+    if not property_file or not property_file.filename or not wealth_files:
+        raise HTTPException(status_code=400, detail="Property file and at least one wealth document are required")
+    registration_files = await _save_registration_files(
+        current_user["_id"],
+        current_user.get("full_name", ""),
+        property_file,
+        wealth_files,
+    )
+    db["users"].update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"registration_files": registration_files, "updated_at": utcnow()}},
+    )
+    return {"success": True, "registration_files": registration_files}
 
 
 @router.post("/send-sms-otp")

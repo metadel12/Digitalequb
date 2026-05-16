@@ -78,6 +78,7 @@ import {
 import { styled } from '@mui/material/styles';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
+import { validateGmailAddress } from '../../utils/validators';
 
 // Styled components
 const StyledPaper = styled(Paper)(({ theme }) => ({
@@ -235,12 +236,6 @@ const RegisterForm = () => {
         return { checks, score, feedback };
     };
 
-    // Validate email format
-    const isValidEmail = (email) => {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
-    };
-
     // Validate username
     const isValidUsername = (username) => {
         const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
@@ -305,8 +300,9 @@ const RegisterForm = () => {
             if (!formData.lastName) newErrors.lastName = 'Last name is required';
             if (!formData.email) {
                 newErrors.email = 'Email is required';
-            } else if (!isValidEmail(formData.email)) {
-                newErrors.email = 'Please enter a valid email address';
+            } else {
+                const emailResult = validateGmailAddress(formData.email);
+                if (emailResult !== true) newErrors.email = emailResult;
             }
             if (!formData.phone) {
                 newErrors.phone = 'Phone number is required';

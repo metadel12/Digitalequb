@@ -237,6 +237,15 @@ class AuthService:
         )
         return otp
 
+    def generate_email_otp(self, user_id: str) -> str:
+        otp = pyotp.random_base32()[:6]
+        expires_at = utcnow() + timedelta(minutes=10)
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {"$set": {"email_otp": {"code": otp, "expires_at": expires_at, "attempts": 0}}},
+        )
+        return otp
+
     def verify_otp(self, user_id: str, otp: str) -> Optional[Dict[str, Any]]:
         user = self.get_user_by_id(user_id)
         data = (user or {}).get("two_factor", {}).get("sms_otp") or {}
@@ -245,6 +254,19 @@ class AuthService:
             return None
         self.db["users"].update_one({"_id": str(user_id)}, {"$set": {"two_factor.sms_otp": None}})
         return self.get_user_by_id(user_id)
+
+    def verify_email_otp(self, user_id: str, otp: str) -> bool:
+        user = self.get_user_by_id(user_id)
+        data = (user or {}).get("email_otp") or {}
+        expires_at = ensure_utc_datetime(data.get("expires_at"))
+        if not data or not expires_at or expires_at < utcnow() or data["code"] != otp:
+            return False
+        # Mark email as verified and clear the OTP
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {"$set": {"email_verified": True, "email_otp": None, "updated_at": utcnow()}},
+        )
+        return True
 
     async def blacklist_token(self, token: str) -> None:
         self.db["blacklisted_tokens"].insert_one({"_id": token, "created_at": utcnow()})

@@ -1,8 +1,32 @@
 export const emailPattern = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+export const gmailPattern = /^[a-z0-9.]+@(?:gmail\.com|googlemail\.com)$/i;
 export const namePattern = /^[A-Za-z]+(?:[ '-][A-Za-z]+)*$/;
 const phonePattern = /^[0-9]{9,15}$/;
 const MIN_BIRTH_YEAR = 1900;
-const ALLOWED_EMAIL_DOMAINS = ['gmail.com', 'outlook.com', 'yahoo.com', 'hotmail.com', 'icloud.com', 'protonmail.com', 'icloud.com', 'me.com', 'live.com', 'msn.com', 'ymail.com'];
+const GMAIL_DOMAINS = ['gmail.com', 'googlemail.com'];
+
+export function validateGmailAddress(value) {
+    const email = value?.trim().toLowerCase();
+    if (!email) return 'Email address is required';
+    if (!emailPattern.test(email)) return 'Please enter a valid email address (e.g., name@gmail.com)';
+
+    const [localPart, domain] = email.split('@');
+    if (!GMAIL_DOMAINS.includes(domain)) {
+        return 'Registration currently requires a Gmail address.';
+    }
+    if (
+        localPart.length < 6 ||
+        localPart.length > 30 ||
+        localPart.startsWith('.') ||
+        localPart.endsWith('.') ||
+        localPart.includes('..') ||
+        !gmailPattern.test(email)
+    ) {
+        return 'Please enter a real Gmail address you can receive mail at.';
+    }
+
+    return true;
+}
 
 export function validateAdult(dateValue) {
     if (!dateValue) return 'Date of birth is required';
@@ -31,11 +55,7 @@ export function validateFullName(value, label = 'Name') {
 }
 
 export function validateEmail(value) {
-    if (!value?.trim()) return 'Email address is required';
-    if (!emailPattern.test(value.trim())) return 'Please enter a valid email address (e.g., name@gmail.com)';
-    const domain = value.trim().split('@')[1]?.toLowerCase();
-    if (!ALLOWED_EMAIL_DOMAINS.includes(domain)) return `Email must be from a supported provider (e.g., Gmail, Outlook, Yahoo)`;
-    return true;
+    return validateGmailAddress(value);
 }
 
 export function validatePhone(countryCode, phoneNumber) {

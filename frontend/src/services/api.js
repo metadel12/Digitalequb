@@ -60,6 +60,11 @@ api.interceptors.request.use(
             config.headers.Authorization = `Bearer ${token}`;
         }
 
+        if (config.data instanceof FormData) {
+            delete config.headers['Content-Type'];
+            delete config.headers['content-type'];
+        }
+
         // Add request ID for debugging
         config.headers['X-Request-ID'] = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 

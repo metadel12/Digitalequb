@@ -15,7 +15,7 @@ import {
     DocumentTextIcon,
     EyeIcon,
     PrinterIcon,
-    DownloadIcon,
+    ArrowDownTrayIcon,
     ChartBarIcon,
     CalendarIcon,
     CreditCardIcon,
@@ -40,7 +40,6 @@ const TransactionMonitor = () => {
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [stats, setStats] = useState(null);
-    const [chartView, setChartView] = useState('daily');
 
     useEffect(() => {
         fetchTransactions();
@@ -54,8 +53,9 @@ const TransactionMonitor = () => {
     const fetchTransactions = async () => {
         try {
             const response = await api.get('/admin/transactions');
-            setTransactions(response.data);
-            setFilteredTransactions(response.data);
+            const rows = Array.isArray(response.data) ? response.data : [];
+            setTransactions(rows);
+            setFilteredTransactions(rows);
         } catch (error) {
             console.error('Error fetching transactions:', error);
             toast.error('Failed to load transactions');
@@ -126,12 +126,12 @@ const TransactionMonitor = () => {
 
     const getTypeBadge = (type) => {
         const types = {
-            contribution: { color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400', icon: ArrowUpIcon, text: 'Contribution' },
-            payout: { color: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400', icon: ArrowDownIcon, text: 'Payout' },
-            fee: { color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400', icon: BanknotesIcon, text: 'Fee' },
-            refund: { color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400', icon: ArrowPathIcon, text: 'Refund' },
+            deposit: { color: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400', icon: ArrowDownIcon, text: 'Deposit' },
+            withdrawal: { color: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400', icon: ArrowUpIcon, text: 'Withdrawal' },
+            equb_payment: { color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400', icon: UserGroupIcon, text: 'Equb Paid' },
+            equb_winning: { color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400', icon: BanknotesIcon, text: 'Equb Winning' },
         };
-        const typeData = types[type] || types.contribution;
+        const typeData = types[type] || { color: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200', icon: BanknotesIcon, text: String(type || 'Transaction').replaceAll('_', ' ') };
         const Icon = typeData.icon;
         return (
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeData.color}`}>
@@ -144,7 +144,10 @@ const TransactionMonitor = () => {
     const getPaymentMethodIcon = (method) => {
         const icons = {
             bank: BuildingOfficeIcon,
+            wallet: BanknotesIcon,
+            wallet_auto: BanknotesIcon,
             mobile_money: DevicePhoneMobileIcon,
+            mobile: DevicePhoneMobileIcon,
             crypto: CurrencyDollarIcon,
             card: CreditCardIcon,
         };
@@ -163,23 +166,30 @@ const TransactionMonitor = () => {
 
     const exportTransactions = async () => {
         try {
-            const response = await api.get('/admin/transactions/export', {
-                params: {
-                    status: filterStatus !== 'all' ? filterStatus : undefined,
-                    type: filterType !== 'all' ? filterType : undefined,
-                    start_date: dateRange.start,
-                    end_date: dateRange.end,
-                },
-                responseType: 'blob',
-            });
-
-            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const headers = ['ID', 'Date', 'User', 'Email', 'Type', 'Amount', 'Method', 'Status', 'Group', 'Reference'];
+            const rows = filteredTransactions.map((tx) => [
+                tx.id,
+                tx.created_at ? format(new Date(tx.created_at), 'yyyy-MM-dd HH:mm:ss') : '',
+                tx.user?.full_name || '',
+                tx.user?.email || '',
+                tx.type || '',
+                tx.amount || 0,
+                tx.payment_method || '',
+                tx.status || '',
+                tx.group?.name || '',
+                tx.reference || '',
+            ]);
+            const csv = [headers, ...rows]
+                .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+                .join('\n');
+            const url = window.URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', `transactions_${format(new Date(), 'yyyy-MM-dd')}.csv`);
             document.body.appendChild(link);
             link.click();
             link.remove();
+            window.URL.revokeObjectURL(url);
             toast.success('Export started successfully');
         } catch (error) {
             console.error('Error exporting transactions:', error);
@@ -202,7 +212,7 @@ const TransactionMonitor = () => {
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Transaction Monitor</h1>
                     <p className="text-gray-500 dark:text-gray-400 mt-1">
-                        Monitor and manage all platform transactions
+                        Deposit, withdrawal, and Equb payment history
                     </p>
                 </div>
                 <div className="flex items-center space-x-3">
@@ -216,7 +226,7 @@ const TransactionMonitor = () => {
                     <Button
                         variant="primary"
                         onClick={exportTransactions}
-                        icon={<DownloadIcon className="h-4 w-4" />}
+                        icon={<ArrowDownTrayIcon className="h-4 w-4" />}
                     >
                         Export
                     </Button>
@@ -238,7 +248,7 @@ const TransactionMonitor = () => {
                         </div>
                     </div>
                     <div className="mt-2 text-sm text-green-600">
-                        +{formatAmount(stats?.growth || 0)} from last month
+                        Deposits: {formatAmount(stats?.depositTotal || 0)}
                     </div>
                 </div>
 
@@ -258,7 +268,7 @@ const TransactionMonitor = () => {
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Success Rate</p>
-                            <p className="text-2xl font-bold text-green-600">{stats?.successRate || 98.5}%</p>
+                            <p className="text-2xl font-bold text-green-600">{stats?.successRate ?? 0}%</p>
                         </div>
                         <div className="h-10 w-10 bg-green-100 dark:bg-green-900/20 rounded-lg flex items-center justify-center">
                             <CheckCircleIcon className="h-5 w-5 text-green-600" />
@@ -269,8 +279,8 @@ const TransactionMonitor = () => {
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
                     <div className="flex items-center justify-between">
                         <div>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
-                            <p className="text-2xl font-bold text-yellow-600">{stats?.pending || transactions.filter(t => t.status === 'pending').length}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">Pending / Processing</p>
+                            <p className="text-2xl font-bold text-yellow-600">{stats?.pending ?? transactions.filter(t => t.status === 'pending').length}</p>
                         </div>
                         <div className="h-10 w-10 bg-yellow-100 dark:bg-yellow-900/20 rounded-lg flex items-center justify-center">
                             <ClockIcon className="h-5 w-5 text-yellow-600" />
@@ -311,10 +321,9 @@ const TransactionMonitor = () => {
                         className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-primary-500"
                     >
                         <option value="all">All Types</option>
-                        <option value="contribution">Contributions</option>
-                        <option value="payout">Payouts</option>
-                        <option value="fee">Fees</option>
-                        <option value="refund">Refunds</option>
+                        <option value="deposit">Deposits</option>
+                        <option value="withdrawal">Withdrawals</option>
+                        <option value="equb_payment">Equb Paid</option>
                     </select>
 
                     <select
@@ -325,6 +334,9 @@ const TransactionMonitor = () => {
                         <option value="all">All Methods</option>
                         <option value="bank">Bank Transfer</option>
                         <option value="mobile_money">Mobile Money</option>
+                        <option value="mobile">Mobile</option>
+                        <option value="wallet">Wallet</option>
+                        <option value="wallet_auto">Wallet Auto</option>
                         <option value="crypto">Crypto</option>
                         <option value="card">Card</option>
                     </select>
@@ -382,10 +394,10 @@ const TransactionMonitor = () => {
                                         </td>
                                         <td className="py-3 px-4">
                                             <div className="text-sm text-gray-900 dark:text-white">
-                                                {format(new Date(tx.created_at), 'MMM dd, yyyy')}
+                                                {tx.created_at ? format(new Date(tx.created_at), 'MMM dd, yyyy') : '-'}
                                             </div>
                                             <div className="text-xs text-gray-500 dark:text-gray-400">
-                                                {format(new Date(tx.created_at), 'hh:mm a')}
+                                                {tx.created_at ? format(new Date(tx.created_at), 'hh:mm a') : ''}
                                             </div>
                                         </td>
                                         <td className="py-3 px-4">
@@ -417,16 +429,16 @@ const TransactionMonitor = () => {
                                             {getTypeBadge(tx.type)}
                                         </td>
                                         <td className="py-3 px-4 text-right">
-                                            <span className={`text-sm font-semibold ${tx.type === 'contribution' ? 'text-red-600' : 'text-green-600'
+                                            <span className={`text-sm font-semibold ${['withdrawal', 'equb_payment'].includes(tx.type) ? 'text-red-600' : 'text-green-600'
                                                 }`}>
-                                                {tx.type === 'contribution' ? '-' : '+'}{formatAmount(tx.amount)}
+                                                {['withdrawal', 'equb_payment'].includes(tx.type) ? '-' : '+'}{formatAmount(tx.amount)}
                                             </span>
                                         </td>
                                         <td className="py-3 px-4">
                                             <div className="flex items-center space-x-1">
                                                 {getPaymentMethodIcon(tx.payment_method)}
                                                 <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
-                                                    {tx.payment_method?.replace('_', ' ')}
+                                                    {tx.payment_method?.replaceAll('_', ' ')}
                                                 </span>
                                             </div>
                                         </td>
@@ -511,9 +523,9 @@ const TransactionMonitor = () => {
                         {/* Amount Section */}
                         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-6 text-center">
                             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Amount</p>
-                            <p className={`text-4xl font-bold ${selectedTransaction.type === 'contribution' ? 'text-red-600' : 'text-green-600'
+                            <p className={`text-4xl font-bold ${['withdrawal', 'equb_payment'].includes(selectedTransaction.type) ? 'text-red-600' : 'text-green-600'
                                 }`}>
-                                {selectedTransaction.type === 'contribution' ? '-' : '+'}{formatAmount(selectedTransaction.amount)}
+                                {['withdrawal', 'equb_payment'].includes(selectedTransaction.type) ? '-' : '+'}{formatAmount(selectedTransaction.amount)}
                             </p>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 capitalize">
                                 {selectedTransaction.type} • {selectedTransaction.payment_method?.replace('_', ' ')}
@@ -543,10 +555,10 @@ const TransactionMonitor = () => {
                             <div>
                                 <p className="text-sm text-gray-500 dark:text-gray-400">Created At</p>
                                 <p className="font-medium text-gray-900 dark:text-white mt-1">
-                                    {format(new Date(selectedTransaction.created_at), 'MMMM dd, yyyy')}
+                                    {selectedTransaction.created_at ? format(new Date(selectedTransaction.created_at), 'MMMM dd, yyyy') : '-'}
                                 </p>
                                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    {format(new Date(selectedTransaction.created_at), 'hh:mm a')}
+                                    {selectedTransaction.created_at ? format(new Date(selectedTransaction.created_at), 'hh:mm a') : ''}
                                 </p>
                             </div>
                             <div>

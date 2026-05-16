@@ -295,6 +295,68 @@ class AdminService:
             )
         return result
 
+    def get_transaction_history(
+        self,
+        transaction_type: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 200,
+        skip: int = 0,
+    ) -> List[Dict[str, Any]]:
+        query: Dict[str, Any] = {"type": {"$in": ["deposit", "withdrawal", "equb_payment"]}}
+        if transaction_type and transaction_type != "all":
+            query["type"] = transaction_type
+        if status and status != "all":
+            query["status"] = status
+
+        transactions = list(
+            self.db["wallet_transactions"]
+            .find(query)
+            .sort("created_at", -1)
+            .skip(max(skip, 0))
+            .limit(min(max(limit, 1), 500))
+        )
+
+        wallet_ids = list({item.get("wallet_id") for item in transactions if item.get("wallet_id")})
+        wallets = {
+            wallet["_id"]: wallet
+            for wallet in self.db["wallets"].find({"_id": {"$in": wallet_ids}})
+        } if wallet_ids else {}
+
+        user_ids = list({wallet.get("user_id") for wallet in wallets.values() if wallet.get("user_id")})
+        users = {
+            user["_id"]: user
+            for user in self.db["users"].find({"_id": {"$in": user_ids}})
+        } if user_ids else {}
+
+        group_ids = list({str(item.get("group_id")) for item in transactions if item.get("group_id")})
+        groups = {
+            group["_id"]: group
+            for group in self.db["groups"].find({"_id": {"$in": group_ids}})
+        } if group_ids else {}
+
+        return [
+            self._serialize_transaction(item, wallets, users, groups)
+            for item in transactions
+        ]
+
+    def get_transaction_stats(self) -> Dict[str, Any]:
+        query = {"type": {"$in": ["deposit", "withdrawal", "equb_payment"]}}
+        transactions = list(self.db["wallet_transactions"].find(query))
+
+        def _amount_for(tx_type: str) -> float:
+            return abs(sum(float(item.get("amount") or 0) for item in transactions if item.get("type") == tx_type))
+
+        completed = [item for item in transactions if item.get("status") == "completed"]
+        return {
+            "totalVolume": sum(abs(float(item.get("amount") or 0)) for item in transactions),
+            "totalCount": len(transactions),
+            "depositTotal": _amount_for("deposit"),
+            "withdrawalTotal": _amount_for("withdrawal"),
+            "equbPaidTotal": _amount_for("equb_payment"),
+            "pending": len([item for item in transactions if item.get("status") in {"pending", "processing", "approved"}]),
+            "successRate": round((len(completed) / len(transactions)) * 100, 1) if transactions else 0,
+        }
+
     def verify_payment(self, payment_id: str, admin_id: str) -> Dict[str, Any]:
         payment = self.db["payment_verifications"].find_one({"_id": payment_id})
         if not payment:
@@ -365,6 +427,9 @@ class AdminService:
         data["blocked_by"] = user.get("blocked_by")
         data["blocked_reason"] = user.get("blocked_reason")
         data["wallet"] = user.get("wallet") or {}
+        data["registration_files"] = user.get("registration_files") or {}
+        registration_files = data["registration_files"]
+        data["registration_file_count"] = int(bool(registration_files.get("property_file"))) + len(registration_files.get("wealth_files") or [])
         return data
 
     def _insert_user_action_log(
@@ -410,3 +475,50 @@ class AdminService:
             if hasattr(value, "isoformat"):
                 normalized[key] = value
         return normalized
+
+    def _serialize_transaction(
+        self,
+        item: Dict[str, Any],
+        wallets: Dict[str, Dict[str, Any]],
+        users: Dict[str, Dict[str, Any]],
+        groups: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        wallet = wallets.get(item.get("wallet_id")) or {}
+        user = users.get(wallet.get("user_id")) or {}
+        metadata = item.get("transaction_metadata") or {}
+        group_id = str(item.get("group_id") or metadata.get("group_id") or "")
+        group = groups.get(group_id) or {}
+        return {
+            "id": str(item.get("_id")),
+            "wallet_id": str(item.get("wallet_id") or ""),
+            "reference": item.get("reference"),
+            "type": item.get("type"),
+            "amount": abs(float(item.get("amount") or 0)),
+            "signed_amount": float(item.get("amount") or 0),
+            "fee": float(item.get("fee") or 0),
+            "net_amount": float(item.get("net_amount") or 0),
+            "payment_method": item.get("payment_method") or "wallet",
+            "description": item.get("description"),
+            "status": item.get("status", "pending"),
+            "balance_before": float(item.get("balance_before") or 0),
+            "balance_after": float(item.get("balance_after") or 0),
+            "transaction_hash": item.get("transaction_hash"),
+            "blockchain_tx_hash": item.get("blockchain_tx_hash"),
+            "created_at": item.get("created_at"),
+            "updated_at": item.get("updated_at"),
+            "completed_at": item.get("completed_at"),
+            "metadata": metadata,
+            "user": {
+                "id": str(user.get("_id") or wallet.get("user_id") or ""),
+                "full_name": user.get("full_name", "Unknown User"),
+                "email": user.get("email", ""),
+                "phone_number": user.get("phone_number", ""),
+                "bank_account": user.get("bank_account") or {},
+            },
+            "group": {
+                "id": group_id,
+                "name": group.get("name") or item.get("group_name") or metadata.get("group_name") or "N/A",
+                "current_members": group.get("current_members") or len(group.get("members") or []),
+                "max_members": group.get("max_members") or group.get("total_members"),
+            },
+        }

@@ -6,14 +6,27 @@ from app.schemas.user import UserCreate, UserResponse
 from app.schemas.auth import Token, OTPRequest, OTPVerify
 from app.models.user import User
 from app.services.auth_service import AuthService
+from app.services.email_service import EmailService
 from app.dependencies import get_current_user
+from app.utils.validators import validate_registration_email
 
 router = APIRouter()
 
 @router.post("/register", response_model=UserResponse)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
+    email_ok, email_error = validate_registration_email(user.email)
+    if not email_ok:
+        raise HTTPException(status_code=400, detail=email_error)
     auth_service = AuthService(db)
-    return auth_service.register_user(user)
+    registered_user = auth_service.register_user(user)
+    # Send welcome email
+    email_service = EmailService()
+    try:
+        await email_service.send_welcome_email(registered_user["email"], registered_user["full_name"])
+    except Exception as e:
+        # Log the error but don't fail the registration
+        print(f"Failed to send welcome email: {e}")
+    return registered_user
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):

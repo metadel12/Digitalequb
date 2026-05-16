@@ -29,6 +29,8 @@ function AuthOnboarding() {
     const [fullName, setFullName] = useState('');
     const [accountNumber, setAccountNumber] = useState('');
     const [accountName, setAccountName] = useState('');
+    const [propertyFile, setPropertyFile] = useState(null);
+    const [wealthFiles, setWealthFiles] = useState([]);
 
     // Step 1 — phone
     const [phoneCountryCode, setPhoneCountryCode] = useState('+251');
@@ -100,7 +102,15 @@ function AuthOnboarding() {
     const handleCompleteProfile = () => run(async () => {
         if (!fullName.trim()) { setError('Full name is required.'); return; }
         if (!accountNumber.trim() || !accountName.trim()) { setError('CBE account number and account name are required.'); return; }
-        await api.post('/auth/complete-profile', { full_name: fullName.trim(), account_number: accountNumber.trim(), account_name: accountName.trim() });
+        if (!propertyFile) { setError('House map or property file is required.'); return; }
+        if (!wealthFiles.length) { setError('Upload at least one wealth document.'); return; }
+        const payload = new FormData();
+        payload.append('full_name', fullName.trim());
+        payload.append('account_number', accountNumber.trim());
+        payload.append('account_name', accountName.trim());
+        payload.append('property_file', propertyFile);
+        wealthFiles.forEach((file) => payload.append('wealth_files', file));
+        await api.post('/auth/complete-profile', payload);
         toast.success('Profile completed.');
         await fetchStatus();
     });
@@ -203,11 +213,36 @@ function AuthOnboarding() {
                                 placeholder="e.g. ABEBE KEBEDE"
                                 helperText="Must match exactly as it appears on your CBE account"
                             />
+                            <Button variant="outlined" component="label">
+                                Upload house map / property file
+                                <input
+                                    hidden
+                                    type="file"
+                                    accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                                    onChange={(e) => setPropertyFile(e.target.files?.[0] || null)}
+                                />
+                            </Button>
+                            <Typography variant="caption" color="text.secondary">
+                                {propertyFile?.name || 'PDF, image, DOC, or DOCX up to 10MB'}
+                            </Typography>
+                            <Button variant="outlined" component="label">
+                                Upload wealth documents
+                                <input
+                                    hidden
+                                    multiple
+                                    type="file"
+                                    accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                                    onChange={(e) => setWealthFiles(Array.from(e.target.files || []))}
+                                />
+                            </Button>
+                            <Typography variant="caption" color="text.secondary">
+                                {wealthFiles.length ? wealthFiles.map((file) => file.name).join(', ') : 'Upload bank, asset, income, or other wealth proof files'}
+                            </Typography>
                             <Button
                                 variant="contained"
                                 size="large"
                                 onClick={handleCompleteProfile}
-                                disabled={submitting || !fullName.trim() || !accountNumber.trim() || !accountName.trim()}
+                                disabled={submitting || !fullName.trim() || !accountNumber.trim() || !accountName.trim() || !propertyFile || !wealthFiles.length}
                             >
                                 {submitting ? 'Verifying...' : 'Save & Continue'}
                             </Button>

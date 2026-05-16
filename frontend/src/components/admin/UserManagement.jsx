@@ -26,7 +26,9 @@ import {
     CheckCircle as CheckCircleIcon,
     Block as BlockIcon,
     Delete as DeleteIcon,
+    Download as DownloadIcon,
     DoDisturb as RejectIcon,
+    InsertDriveFile as FileIcon,
     LockOpen as UnblockIcon,
     Pending as PendingIcon,
 } from '@mui/icons-material';
@@ -57,6 +59,14 @@ const formatDate = (value) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return 'N/A';
     return date.toLocaleDateString();
+};
+
+const getRegistrationDocuments = (user) => {
+    const files = user?.registration_files || {};
+    return [
+        files.property_file,
+        ...(files.wealth_files || []),
+    ].filter(Boolean);
 };
 
 const UserManagement = () => {
@@ -131,6 +141,25 @@ const UserManagement = () => {
         }
     };
 
+    const handleDownloadDocument = async (user, document) => {
+        try {
+            const response = await api.get(
+                `/admin/users/${user._id}/registration-files/${document.category}/${document.stored_name}`,
+                { responseType: 'blob' }
+            );
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = window.document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', document.original_name || document.stored_name);
+            window.document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            enqueueSnackbar(err?.response?.data?.detail || 'Failed to download document.', { variant: 'error' });
+        }
+    };
+
     return (
         <Box>
             <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
@@ -187,6 +216,7 @@ const UserManagement = () => {
                                 <TableCell><strong>Status</strong></TableCell>
                                 <TableCell><strong>Contact</strong></TableCell>
                                 <TableCell><strong>CBE Account</strong></TableCell>
+                                <TableCell><strong>Documents</strong></TableCell>
                                 <TableCell><strong>Joined</strong></TableCell>
                                 <TableCell align="right"><strong>Actions</strong></TableCell>
                             </TableRow>
@@ -219,6 +249,13 @@ const UserManagement = () => {
                                             <Typography variant="caption" color="text.secondary">
                                                 {user.bank_account?.bank_name || 'Commercial Bank of Ethiopia'}
                                             </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Chip
+                                                size="small"
+                                                color={user.registration_file_count ? 'primary' : 'default'}
+                                                label={`${user.registration_file_count || getRegistrationDocuments(user).length} file${(user.registration_file_count || getRegistrationDocuments(user).length) === 1 ? '' : 's'}`}
+                                            />
                                         </TableCell>
                                         <TableCell>{formatDate(user.created_at)}</TableCell>
                                         <TableCell align="right" onClick={(event) => event.stopPropagation()}>
@@ -255,7 +292,7 @@ const UserManagement = () => {
                             })}
                             {!loading && filteredUsers.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={6}>
+                                    <TableCell colSpan={7}>
                                         <Alert severity="info">No users match this filter.</Alert>
                                     </TableCell>
                                 </TableRow>
@@ -292,6 +329,46 @@ const UserManagement = () => {
                                     <Alert severity="warning">Blocked reason: {selectedUser.blocked_reason}</Alert>
                                 </Grid>
                             ) : null}
+                            <Grid item xs={12}>
+                                <Typography variant="subtitle2" fontWeight={800} sx={{ mt: 1, mb: 1 }}>
+                                    Registration Documents
+                                </Typography>
+                                {getRegistrationDocuments(selectedUser).length ? (
+                                    <Stack spacing={1}>
+                                        {getRegistrationDocuments(selectedUser).map((document) => (
+                                            <Paper
+                                                key={`${document.category}-${document.stored_name}`}
+                                                variant="outlined"
+                                                sx={{ p: 1.5, borderRadius: 2 }}
+                                            >
+                                                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between">
+                                                    <Stack direction="row" spacing={1.5} alignItems="center">
+                                                        <FileIcon color="primary" />
+                                                        <Box>
+                                                            <Typography variant="body2" fontWeight={700}>
+                                                                {document.original_name || document.stored_name}
+                                                            </Typography>
+                                                            <Typography variant="caption" color="text.secondary">
+                                                                {document.category === 'property' ? 'House map / property' : 'Wealth document'} | {Number(document.size || 0).toLocaleString()} bytes | Stored for {document.user_name || selectedUser.full_name}
+                                                            </Typography>
+                                                        </Box>
+                                                    </Stack>
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        startIcon={<DownloadIcon />}
+                                                        onClick={() => handleDownloadDocument(selectedUser, document)}
+                                                    >
+                                                        Download
+                                                    </Button>
+                                                </Stack>
+                                            </Paper>
+                                        ))}
+                                    </Stack>
+                                ) : (
+                                    <Alert severity="info">No registration documents uploaded for this user.</Alert>
+                                )}
+                            </Grid>
                         </Grid>
                     </CardContent>
                 </Card>
