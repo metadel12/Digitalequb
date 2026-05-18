@@ -236,8 +236,8 @@ async def create_comprehensive_group(payload: ComprehensiveGroupCreate, current_
             "invite_phones": payload.invite_phones,
             "total_fund": payload.contribution_amount * payload.max_members,
             "remaining_fund": payload.contribution_amount * payload.max_members,
-            "winner_payout_percent": 75,
-            "system_wallet_percent": 25,
+            "winner_payout_percent": 90,
+            "system_wallet_percent": 10,
             "system_wallet_balance": 0,
             "system_wallet_label": "DigiEqub Earnings Wallet",
             "winner_selection_method": payload.group_type if payload.group_type == "bid" else "random",
@@ -523,12 +523,19 @@ async def mark_member_paid(group_id: str, user_id: str, current_user=Depends(get
             rounds_completed = list(member.get("rounds_completed") or [])
             if round_number not in rounds_completed:
                 rounds_completed.append(round_number)
+            
+            # Track round-specific contributions
+            contribution_amount = float(group.get("contribution_amount") or 0)
+            round_contributions = dict(member.get("round_contributions") or {})
+            round_contributions[str(round_number)] = contribution_amount
+            
             member = {
                 **member,
                 "has_paid_current_round": True,
                 "rounds_completed": sorted(set(int(item) for item in rounds_completed)),
                 "contribution_count": max(int(member.get("contribution_count") or 0), round_number),
-                "total_contributed": float(member.get("total_contributed") or 0) + float(group.get("contribution_amount") or 0),
+                "total_contributed": float(member.get("total_contributed") or 0) + contribution_amount,
+                "round_contributions": round_contributions,
                 "next_payment_due": member.get("next_payment_due") or utcnow(),
             }
             changed = True

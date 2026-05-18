@@ -91,9 +91,10 @@ async def submit_payment_proof(
         if member.get("has_paid_current_round"):
             raise HTTPException(status_code=400, detail="You have already paid for the current round")
 
-        # Validate amount matches group contribution
-        if request.amount != group.get("contribution_amount"):
-            raise HTTPException(status_code=400, detail=f"Amount must be exactly {group.get('contribution_amount')} ETB")
+        # Validate amount matches group contribution (allow partial payments)
+        expected_amount = group.get("contribution_amount")
+        if request.amount <= 0 or request.amount > expected_amount:
+            raise HTTPException(status_code=400, detail=f"Amount must be between 0 and {expected_amount} ETB")
 
         # Create payment verification record
         payment_verification = {
@@ -197,7 +198,11 @@ async def verify_payment(
         )
 
         if request.status == "verified":
-            # Update member payment status
+            # Get the group to access round number
+            group = db["groups"].find_one({"_id": payment["group_id"]})
+            round_number = payment.get("round_number", group.get("current_round", 1))
+            
+            # Update member payment status with round-specific contribution tracking
             db["groups"].update_one(
                 {"_id": payment["group_id"], "members.user_id": payment["member_id"]},
                 {
@@ -205,6 +210,7 @@ async def verify_payment(
                         "members.$.has_paid_current_round": True,
                         "members.$.payment_verified": True,
                         "members.$.last_payment_at": datetime.now(),
+                        f"members.$.round_contributions.{round_number}": float(payment["amount"]),
                         "updated_at": datetime.now()
                     },
                     "$inc": {

@@ -240,8 +240,8 @@ def main() -> None:
             "round_status": {},
             "rules": {
                 "winner_selection_method": "random",
-                "winner_payout_ratio": 0.75,
-                "system_fee_ratio": 0.25,
+                "winner_payout_ratio": 0.90,
+                "system_fee_ratio": 0.10,
                 "ready_for_winner_selection": False,
                 "current_round_fund": 0.0,
                 "winner_history": [],

@@ -9,8 +9,8 @@ from pymongo.database import Database
 from ..core.mongo_utils import current_round_number, new_id, next_payment_due, utcnow
 from ..models.payment_proof import PaymentProof
 
-WINNER_PAYOUT_RATIO = 0.75
-SYSTEM_PAYOUT_RATIO = 0.25
+WINNER_PAYOUT_RATIO = 0.90
+SYSTEM_PAYOUT_RATIO = 0.10
 
 
 class BankPaymentService:
@@ -27,8 +27,9 @@ class BankPaymentService:
             raise ValueError("Group is not active")
 
         expected = float(group.get("contribution_amount") or 0)
-        if float(amount) != expected:
-            raise ValueError(f"Contribution amount must be {expected}")
+        # Allow partial payments - must be at least 1% of expected amount
+        if float(amount) <= 0 or float(amount) > expected:
+            raise ValueError(f"Contribution amount must be between 0 and {expected}")
 
         member = next((item for item in group.get("members", []) if str(item.get("user_id")) == str(user_id)), None)
         if not member:
@@ -117,12 +118,17 @@ class BankPaymentService:
                 if round_number not in rounds_completed:
                     rounds_completed.append(round_number)
 
+                # Track round-specific contributions
+                round_contributions = dict(item.get("round_contributions") or {})
+                round_contributions[str(round_number)] = float(amount)
+
                 item = {
                     **item,
                     "contribution_count": int(item.get("contribution_count") or 0) + 1,
                     "has_paid_current_round": True,
                     "rounds_completed": sorted(set(int(entry) for entry in rounds_completed)),
                     "total_contributed": float(item.get("total_contributed") or 0) + float(amount),
+                    "round_contributions": round_contributions,
                     "next_payment_due": next_payment_due(group.get("frequency", "weekly")),
                 }
             updated_members.append(item)

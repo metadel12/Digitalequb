@@ -80,8 +80,29 @@ class WinnerService:
             eligible_members = members
 
         winner = eligible_members[secrets.randbelow(len(eligible_members))]
-        total_collected = round(float(group.get("contribution_amount", 0)) * len(members), 2)
-        winner_amount = round(total_collected * WINNER_PAYOUT_RATIO, 2)
+        
+        # Calculate total collected from all members for this round
+        expected_per_member = float(group.get("contribution_amount", 0))
+        total_collected = 0.0
+        for member in members:
+            round_contributions = member.get("round_contributions") or {}
+            member_contribution = float(round_contributions.get(str(round_number), expected_per_member))
+            total_collected += member_contribution
+        
+        total_collected = round(total_collected, 2)
+        
+        # Calculate winner's contribution percentage for this round
+        winner_round_contributions = winner.get("round_contributions") or {}
+        winner_contribution = float(winner_round_contributions.get(str(round_number), expected_per_member))
+        winner_contribution_percentage = winner_contribution / expected_per_member if expected_per_member > 0 else 1.0
+        
+        # Calculate base winner amount (90% of total pool)
+        base_winner_amount = round(total_collected * WINNER_PAYOUT_RATIO, 2)
+        
+        # Apply proportional reduction based on winner's contribution
+        winner_amount = round(base_winner_amount * winner_contribution_percentage, 2)
+        
+        # System fee is always 10% of total collected
         system_fee = round(total_collected * SYSTEM_PAYOUT_RATIO, 2)
 
         return {
@@ -91,6 +112,8 @@ class WinnerService:
             "total_collected": total_collected,
             "winner_amount": winner_amount,
             "system_fee": system_fee,
+            "winner_contribution": winner_contribution,
+            "winner_contribution_percentage": round(winner_contribution_percentage * 100, 2),
         }
 
     def process_winner_payout(self, group_id: str, winner_user_id: str, round_number: int, winner_amount: float, system_fee: float) -> Dict[str, Any]:
@@ -153,7 +176,7 @@ class WinnerService:
             "status": "completed",
             "reference": f"SYS-{new_id().split('-')[0].upper()}",
             "description": f"Platform fee collected from {group.get('name')} for round {round_number}",
-            "transaction_metadata": {"group_name": group.get("name"), "payout_reference": payout_reference, "percentage": "25%"},
+            "transaction_metadata": {"group_name": group.get("name"), "payout_reference": payout_reference, "percentage": "10%"},
             "completed_at": utcnow(),
             "created_at": utcnow(),
             "updated_at": utcnow(),
@@ -180,7 +203,7 @@ class WinnerService:
                 metadata={
                     "group_name": group.get("name"),
                     "round_number": round_number,
-                    "percentage": "25%",
+                    "percentage": "10%",
                     "winner_user_id": str(winner_user_id),
                     "system_wallet_reference": system_tx["reference"],
                 },
@@ -580,7 +603,7 @@ class WinnerService:
             bank_suffix = f" Your CBE account {bank_account} has been credited." if bank_account else ""
             return (
                 f"Congratulations {member_name}! You won {winner_amount:,.0f} ETB from {group_name} "
-                f"in round {round_number}. This is 75% of the {total_collected:,.0f} ETB pool.{bank_suffix}"
+                f"in round {round_number}. Your payout is based on your contribution percentage.{bank_suffix}"
             )
         return (
             f"Winner announcement: {winner_name} won {winner_amount:,.0f} ETB from {group_name} in round {round_number}. "
@@ -607,7 +630,8 @@ class WinnerService:
                 (
                     f"<h2>Congratulations {member_name}</h2>"
                     f"<p>You won <strong>{winner_amount:,.0f} ETB</strong> from <strong>{group_name}</strong> in round {round_number}.</p>"
-                    f"<p>Total collected: {total_collected:,.0f} ETB<br/>Platform fee: {system_fee:,.0f} ETB</p>"
+                    f"<p>Total collected: {total_collected:,.0f} ETB<br/>Platform fee: {system_fee:,.0f} ETB<br/>"
+                    f"Your payout is calculated based on your contribution percentage (90% of pool × your contribution rate).</p>"
                     f"<p>Payout account: <strong>{bank_account or 'CBE account on file'}</strong></p>"
                 ),
             )

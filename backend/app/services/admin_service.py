@@ -48,12 +48,50 @@ class AdminService:
             ]
         }
         users = list(self.db["users"].find(query).sort("created_at", -1).skip(skip).limit(limit))
+        
+        # Add profile completion status for each user
+        for user in users:
+            user["profile_completion"] = self._check_profile_completion(user)
+        
         return {
             "success": True,
             "users": [self._serialize_admin_user(user) for user in users],
             "total": self.db["users"].count_documents(query),
             "limit": limit,
             "skip": skip,
+        }
+    
+    def _check_profile_completion(self, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Check if user has completed all required registration fields"""
+        required_fields = {
+            "full_name": bool(user.get("full_name")),
+            "email": bool(user.get("email")),
+            "phone_number": bool(user.get("phone_number")),
+            "bank_account": bool(
+                user.get("bank_account") 
+                and user.get("bank_account", {}).get("account_number")
+                and user.get("bank_account", {}).get("account_name")
+            ),
+            "registration_files": bool(
+                user.get("registration_files")
+                and user.get("registration_files", {}).get("property_file")
+                and user.get("registration_files", {}).get("wealth_files")
+            ),
+        }
+        
+        completed_count = sum(1 for completed in required_fields.values() if completed)
+        total_count = len(required_fields)
+        percentage = round((completed_count / total_count) * 100, 1) if total_count > 0 else 0
+        
+        missing_fields = [field for field, completed in required_fields.items() if not completed]
+        
+        return {
+            "is_complete": all(required_fields.values()),
+            "percentage": percentage,
+            "completed_fields": completed_count,
+            "total_fields": total_count,
+            "missing_fields": missing_fields,
+            "fields_status": required_fields,
         }
 
     def get_all_users(self, limit: int = 50, skip: int = 0, status: Optional[str] = None) -> Dict[str, Any]:
@@ -69,13 +107,25 @@ class AdminService:
             "skip": skip,
         }
 
-    def approve_user(self, admin_id: str, user_id: str, reason: Optional[str] = None) -> Dict[str, Any]:
+    def approve_user(self, admin_id: str, user_id: str, reason: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
         user = self.db["users"].find_one({"_id": str(user_id)})
         if not user:
             return {"success": False, "error": "User not found"}
         status = str(user.get("status") or "").lower()
         if status not in {"pending", "rejected", "blocked"}:
             return {"success": False, "error": f"User status is {user.get('status')}, cannot approve"}
+
+        # Check profile completion before approving (unless forced)
+        if not force:
+            profile_completion = self._check_profile_completion(user)
+            if not profile_completion["is_complete"]:
+                missing = ", ".join(profile_completion["missing_fields"])
+                return {
+                    "success": False,
+                    "error": f"User profile is incomplete. Missing required fields: {missing}",
+                    "profile_completion": profile_completion,
+                    "can_force_approve": True,
+                }
 
         now = utcnow()
         self.db["users"].update_one(
@@ -86,6 +136,7 @@ class AdminService:
                     "approval_status": "approved",
                     "approved_by": str(admin_id),
                     "approved_at": now,
+                    "force_approved": force,
                     "updated_at": now,
                 },
                 "$unset": {
@@ -98,14 +149,14 @@ class AdminService:
                 },
             },
         )
-        self._insert_user_action_log(user_id, user.get("full_name"), "approved", admin_id, reason)
+        self._insert_user_action_log(user_id, user.get("full_name"), "approved" if not force else "force_approved", admin_id, reason)
         self._create_user_notification(
             str(user_id),
             "Account Approved",
             "Your DigiEqub account has been approved. You can now join groups and start saving.",
             "account_approval",
         )
-        logger.info("Approved user %s", user.get("email"))
+        logger.info("Approved user %s%s", user.get("email"), " (forced)" if force else "")
         return {
             "success": True,
             "message": f"User {user.get('full_name', 'User')} approved successfully",
@@ -119,6 +170,9 @@ class AdminService:
         if str(user.get("status") or "").lower() != "pending":
             return {"success": False, "error": f"User status is {user.get('status')}, cannot reject"}
 
+        # Add profile completion info to rejection
+        profile_completion = self._check_profile_completion(user)
+
         now = utcnow()
         self.db["users"].update_one(
             {"_id": str(user_id)},
@@ -129,20 +183,29 @@ class AdminService:
                     "rejected_by": str(admin_id),
                     "rejected_at": now,
                     "rejection_reason": reason,
+                    "profile_completion_at_rejection": profile_completion,
                     "updated_at": now,
                 }
             },
         )
         self._insert_user_action_log(user_id, user.get("full_name"), "rejected", admin_id, reason)
+        
+        # Include missing fields in rejection notification
+        missing_fields_msg = ""
+        if not profile_completion["is_complete"]:
+            missing = ", ".join(profile_completion["missing_fields"])
+            missing_fields_msg = f" Missing required fields: {missing}."
+        
         self._create_user_notification(
             str(user_id),
             "Registration Rejected",
-            f"Your registration was rejected. Reason: {reason}",
+            f"Your registration was rejected. Reason: {reason}.{missing_fields_msg}",
             "account_rejection",
         )
         return {
             "success": True,
             "message": f"User {user.get('full_name', 'User')} rejected",
+            "profile_completion": profile_completion,
             "user": self._serialize_admin_user(self.db["users"].find_one({"_id": str(user_id)}) or user),
         }
 
@@ -258,8 +321,8 @@ class AdminService:
                     "pending_members": max(total_members - paid_members, 0),
                     "all_paid": total_members > 0 and paid_members == total_members,
                     "total_collected": total_collected,
-                    "winner_amount": round(total_collected * 0.75, 2),
-                    "platform_fee": round(total_collected * 0.25, 2),
+                    "winner_amount": round(total_collected * 0.90, 2),
+                    "platform_fee": round(total_collected * 0.10, 2),
                     "admin_bank": self.ADMIN_CBE_ACCOUNT,
                 }
             )
@@ -383,6 +446,7 @@ class AdminService:
                 "$set": {
                     "members.$.has_paid_current_round": True,
                     "members.$.payment_verified_at": now,
+                    f"members.$.round_contributions.{payment.get('round_number', 1)}": float(payment.get("amount") or 0),
                     "updated_at": now,
                 },
                 "$inc": {"members.$.total_contributed": float(payment.get("amount") or 0)},
@@ -430,6 +494,11 @@ class AdminService:
         data["registration_files"] = user.get("registration_files") or {}
         registration_files = data["registration_files"]
         data["registration_file_count"] = int(bool(registration_files.get("property_file"))) + len(registration_files.get("wealth_files") or [])
+        
+        # Add profile completion status if available
+        if "profile_completion" in user:
+            data["profile_completion"] = user["profile_completion"]
+        
         return data
 
     def _insert_user_action_log(

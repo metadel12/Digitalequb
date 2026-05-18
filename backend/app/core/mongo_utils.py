@@ -105,6 +105,7 @@ def group_member_doc(user_doc: Dict[str, Any], position: int) -> Dict[str, Any]:
         "next_payment_due": None,
         "missed_payments": 0,
         "total_contributed": 0.0,
+        "round_contributions": {},
         "full_name": user_doc.get("full_name", "Unknown"),
         "email": user_doc.get("email", ""),
         "bank_account": user_doc.get("bank_account"),

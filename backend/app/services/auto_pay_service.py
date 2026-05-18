@@ -175,6 +175,8 @@ class AutoPayService:
         )
 
         # Update group member record
+        group = self.db["groups"].find_one({"_id": group_id})
+        round_number = group.get("current_round", 1) if group else 1
         next_due = next_payment_due(frequency)
         self.db["groups"].update_one(
             {"_id": group_id, "members.user_id": user_id},
@@ -182,6 +184,7 @@ class AutoPayService:
                 "$set": {
                     "members.$.has_paid_current_round": True,
                     "members.$.next_payment_due": next_due,
+                    f"members.$.round_contributions.{round_number}": float(amount),
                     "updated_at": now,
                 },
                 "$inc": {

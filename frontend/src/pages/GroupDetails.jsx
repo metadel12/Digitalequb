@@ -1011,17 +1011,16 @@ const GroupDetails = () => {
 
     // Handle make contribution
     const handleMakeContribution = async () => {
-        const normalizedContributionAmount = !isStoredGroup && expectedContributionAmount > 0
-            ? expectedContributionAmount
-            : parseFloat(contributionAmount);
+        const normalizedContributionAmount = parseFloat(contributionAmount);
+        const expectedAmount = Number(expectedContributionAmount || group.rules.defaultContribution || 0);
 
         if (!Number.isFinite(normalizedContributionAmount) || normalizedContributionAmount <= 0) {
-            enqueueSnackbar('Please enter a valid amount', { variant: 'error' });
+            enqueueSnackbar('Please enter a valid amount greater than 0', { variant: 'error' });
             return;
         }
 
-        if (isStoredGroup && normalizedContributionAmount !== Number(group.rules.defaultContribution || 1000)) {
-            enqueueSnackbar(`Weekly deposit must be exactly ETB ${group.rules.defaultContribution || 1000}`, { variant: 'warning' });
+        if (normalizedContributionAmount > expectedAmount) {
+            enqueueSnackbar(`Amount cannot exceed ETB ${expectedAmount.toLocaleString()}`, { variant: 'error' });
             return;
         }
 
@@ -1183,7 +1182,7 @@ const GroupDetails = () => {
         setPaymentContext('contribution');
         setPaymentStep(0);
         setActivePaymentRecord(null);
-        setContributionAmount(String(group?.rules?.defaultContribution || 1000));
+        setContributionAmount(String(expectedContributionAmount || group?.rules?.defaultContribution || 0));
         setContributionMethod('card');
         setPaymentForm({
             referenceNumber: '',
@@ -2895,8 +2894,8 @@ const GroupDetails = () => {
                                                 <Typography variant="h6" fontWeight={700}>{group.name}</Typography>
                                                 <Divider />
                                                 <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                                    <Typography variant="body2" color="text.secondary">Due Amount</Typography>
-                                                    <Typography variant="h5" fontWeight={800} color="primary.main">
+                                                    <Typography variant="body2" color="text.secondary">Expected Amount</Typography>
+                                                    <Typography variant="h6" fontWeight={700} color="text.primary">
                                                         ETB {Number(expectedContributionAmount || group.rules.defaultContribution || 0).toLocaleString()}
                                                     </Typography>
                                                 </Stack>
@@ -2909,9 +2908,35 @@ const GroupDetails = () => {
                                             </Stack>
                                         </CardContent>
                                     </Card>
+
+                                    <TextField
+                                        label="Payment Amount"
+                                        type="number"
+                                        fullWidth
+                                        value={contributionAmount}
+                                        onChange={(e) => setContributionAmount(e.target.value)}
+                                        InputProps={{
+                                            startAdornment: <Typography sx={{ mr: 1, color: 'text.secondary' }}>ETB</Typography>,
+                                        }}
+                                        helperText={`Enter amount (0.01 - ${Number(expectedContributionAmount || 0).toLocaleString()} ETB). Partial payments receive proportional winnings.`}
+                                        placeholder={String(expectedContributionAmount || 0)}
+                                        inputProps={{
+                                            min: 0.01,
+                                            max: expectedContributionAmount || 0,
+                                            step: 0.01
+                                        }}
+                                    />
+
                                     <Alert severity="info" icon={<WalletIcon />}>
                                         Payment will be deducted directly from your DigiEqub wallet.
                                     </Alert>
+
+                                    {contributionAmount && parseFloat(contributionAmount) < (expectedContributionAmount || 0) && (
+                                        <Alert severity="warning">
+                                            You're paying {((parseFloat(contributionAmount) / (expectedContributionAmount || 1)) * 100).toFixed(0)}% of the expected amount.
+                                            Your winning payout will be proportionally reduced.
+                                        </Alert>
+                                    )}
                                 </>
                             )}
 
@@ -2958,10 +2983,10 @@ const GroupDetails = () => {
                                     size="large"
                                     startIcon={<WalletIcon />}
                                     onClick={handleMakeContribution}
-                                    disabled={isSubmitting}
+                                    disabled={isSubmitting || !contributionAmount || parseFloat(contributionAmount) <= 0}
                                     fullWidth
                                 >
-                                    {isSubmitting ? <CircularProgress size={22} /> : `Pay ETB ${Number(expectedContributionAmount || group.rules.defaultContribution || 0).toLocaleString()} from Wallet`}
+                                    {isSubmitting ? <CircularProgress size={22} /> : `Pay ETB ${Number(contributionAmount || 0).toLocaleString()} from Wallet`}
                                 </Button>
                             </>
                         )}

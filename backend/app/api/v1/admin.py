@@ -26,6 +26,7 @@ class WinnerSelectPayload(BaseModel):
 class UserActionPayload(BaseModel):
     user_id: str
     reason: Optional[str] = None
+    force: Optional[bool] = False
 
 
 def _get_admin_service(db: Database) -> AdminService:
@@ -133,6 +134,27 @@ async def get_pending_users(
     return service.get_pending_users(limit=limit, skip=skip)
 
 
+@router.get("/users/{user_id}/profile-completion")
+async def get_user_profile_completion(
+    user_id: str,
+    current_user=Depends(get_current_active_user),
+    db: Database = Depends(get_db),
+):
+    service = _get_admin_service(db)
+    _require_single_admin(current_user, service)
+    
+    user = db["users"].find_one({"_id": str(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    profile_completion = service._check_profile_completion(user)
+    return {
+        "success": True,
+        "user_id": user_id,
+        "profile_completion": profile_completion,
+    }
+
+
 @router.get("/users/all")
 async def get_all_users(
     status: Optional[str] = None,
@@ -202,7 +224,7 @@ async def approve_user(
 ):
     service = _get_admin_service(db)
     _require_single_admin(current_user, service)
-    result = service.approve_user(str(current_user["_id"]), payload.user_id, payload.reason)
+    result = service.approve_user(str(current_user["_id"]), payload.user_id, payload.reason, payload.force or False)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Failed to approve user"))
     return result
