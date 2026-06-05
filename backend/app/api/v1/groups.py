@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from pymongo.database import Database
 
 from ...core.database import get_db
-from ...core.mongo_utils import current_round_number, group_member_doc, group_total_rounds, new_id, utcnow
+from ...core.mongo_utils import current_round_number, current_round_total_collected, group_member_doc, group_total_rounds, new_id, utcnow
 from ...dependencies import get_current_active_user
 from ...schemas.group import (
     ComprehensiveGroupCreate,
@@ -422,7 +422,14 @@ async def join_group(group_id: str, join_data: Optional[JoinGroup] = None, curre
         raise HTTPException(status_code=400, detail="Already a member of this group")
     if group.get("is_private") and (not join_data or join_data.join_code != group.get("join_code")):
         raise HTTPException(status_code=403, detail="Invalid join code")
-    if int(group.get("current_members", len(group.get("members", [])))) >= int(group.get("max_members", 0)):
+
+    actual_members = len(group.get("members", []))
+    current_members = int(group.get("current_members", actual_members))
+    if current_members != actual_members:
+        db["groups"].update_one({"_id": group["_id"]}, {"$set": {"current_members": actual_members}})
+        current_members = actual_members
+
+    if current_members >= int(group.get("max_members", 0)):
         raise HTTPException(status_code=400, detail="Group is full")
     if not current_user.get("bank_account"):
         raise HTTPException(status_code=403, detail="You must have a Commercial Bank of Ethiopia account to join this group")
@@ -482,8 +489,31 @@ async def leave_group(group_id: str, current_user=Depends(get_current_active_use
         raise HTTPException(status_code=400, detail="Not a member of this group")
     if str(group.get("created_by")) == str(current_user["_id"]) and len(members) > 0:
         raise HTTPException(status_code=400, detail="Creator cannot leave group with members. Transfer ownership or disband group")
-    db["groups"].update_one({"_id": group["_id"]}, {"$set": {"members": members, "current_members": len(members), "updated_at": utcnow()}})
-    return {"message": "Successfully left group"}
+
+    # Update group members and current member count
+    max_members = int(group.get("max_members") or 0)
+    available_spots = max(0, max_members - len(members))
+    rules = dict(group.get("rules") or {})
+    rules["available_spots"] = available_spots
+
+    db["groups"].update_one({"_id": group["_id"]}, {"$set": {"members": members, "current_members": len(members), "rules": rules, "updated_at": utcnow()}})
+
+    # Notify the group creator that a spot opened (if they are not the leaving user)
+    gname = group.get("name", "Equb Group")
+    gid = str(group["_id"])
+    uid = str(current_user["_id"])
+    if str(group.get("created_by")) != uid:
+        _push_notification(
+            db, str(group.get("created_by")),
+            title=f"Spot Available in {gname}",
+            message=f"A member has left {gname}. {available_spots} spot(s) are now available to join.",
+            ntype="group",
+            priority="low",
+            link=f"/groups/{gid}",
+            metadata={"group_id": gid, "group_name": gname, "available_spots": available_spots},
+        )
+
+    return {"message": "Successfully left group", "available_spots": available_spots}
 
 
 @router.get("/{group_id}/members", response_model=List[GroupMemberResponse])
@@ -545,9 +575,10 @@ async def mark_member_paid(group_id: str, user_id: str, current_user=Depends(get
         raise HTTPException(status_code=404, detail="Member not found in group")
 
     all_paid = all(bool(item.get("has_paid_current_round")) for item in updated_members)
+    total_collected = current_round_total_collected({**group, "members": updated_members}, round_number)
     rules = dict(group.get("rules") or {})
     rules["ready_for_winner_selection"] = all_paid
-    rules["current_round_fund"] = round(float(group.get("contribution_amount") or 0) * len(updated_members), 2) if all_paid else 0.0
+    rules["current_round_fund"] = total_collected if all_paid else 0.0
     rules["last_contribution_received_at"] = utcnow()
 
     payment_doc = db["round_payments"].find_one({"group_id": str(group_id), "round_number": round_number}) or {
@@ -555,7 +586,7 @@ async def mark_member_paid(group_id: str, user_id: str, current_user=Depends(get
         "group_id": str(group_id),
         "group_name": group.get("name"),
         "round_number": round_number,
-        "total_collected": round(float(group.get("contribution_amount") or 0) * len(updated_members), 2),
+        "total_collected": total_collected,
         "winner_id": None,
         "winner_amount": 0.0,
         "system_fee": 0.0,
@@ -564,6 +595,7 @@ async def mark_member_paid(group_id: str, user_id: str, current_user=Depends(get
         "created_at": utcnow(),
         "completed_at": None,
     }
+    payment_doc["total_collected"] = total_collected
     paid_members = sorted({str(item.get("user_id")) for item in updated_members if item.get("has_paid_current_round")})
     pending_members = [str(item.get("user_id")) for item in updated_members if not item.get("has_paid_current_round")]
     payment_doc["payment_status"] = {

@@ -6,8 +6,9 @@ from app.core.config import settings
 def send_email(to_email: str, subject: str, body: str) -> dict:
     """Send email using SMTP"""
     try:
+        from_email = getattr(settings, "FROM_EMAIL", None) or getattr(settings, "EMAIL_FROM", "noreply@digiequb.com")
         msg = MIMEMultipart()
-        msg['From'] = settings.EMAIL_FROM
+        msg['From'] = from_email
         msg['To'] = to_email
         msg['Subject'] = subject
 
@@ -17,7 +18,7 @@ def send_email(to_email: str, subject: str, body: str) -> dict:
         server.starttls()
         server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
         text = msg.as_string()
-        server.sendmail(settings.EMAIL_FROM, to_email, text)
+        server.sendmail(from_email, to_email, text)
         server.quit()
 
         return {"status": "sent", "message": "Email sent successfully"}

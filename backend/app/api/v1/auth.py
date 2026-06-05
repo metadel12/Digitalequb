@@ -46,6 +46,7 @@ from ...services.auth_service import AuthService, SYSTEM_ADMIN_EMAIL, user_to_re
 from ...services.cbe_service import CommercialBankOfEthiopiaService
 from ...services.otp_service import OTPService
 from ...services.social_auth_service import SocialAuthService
+from ...services.admin_service import AdminService
 from ...utils.validators import validate_registration_email
 
 router = APIRouter()
@@ -202,11 +203,28 @@ async def _issue_login_response(db: Database, user: dict[str, Any], request: Req
     )
 
     refreshed = auth_service.get_user_by_id(user["_id"])
+    
+    # Add approval status information
+    status = str(refreshed.get("status", "")).lower()
+    approval_status = str(refreshed.get("approval_status", "pending")).lower()
+    if status == "active" and approval_status in {"", "pending"}:
+        approval_status = "approved"
+    role = str(refreshed.get("role", "")).lower()
+    is_approved = (
+        role == "super_admin" or 
+        (status == "active" and approval_status == "approved")
+    )
+    user_response = user_to_response(refreshed)
+    can_access_dashboard = bool(user_response.get("can_access_dashboard"))
+    
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "user": user_to_response(refreshed),
+        "user": user_response,
+        "approval_status": approval_status,
+        "is_approved": is_approved,
+        "can_access_dashboard": can_access_dashboard,
     }
 
 
@@ -320,7 +338,7 @@ async def register(request: Request, background_tasks: BackgroundTasks, db: Data
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: Request, db: Database = Depends(get_db)) -> Any:  # noqa: C901
+async def login(request: Request, background_tasks: BackgroundTasks, db: Database = Depends(get_db)) -> Any:  # noqa: C901
     auth_service = AuthService(db)
     username = ""
     password = ""
@@ -341,11 +359,21 @@ async def login(request: Request, db: Database = Depends(get_db)) -> Any:  # noq
     user = auth_service.authenticate_user(username, password)
     if not user:
         raise HTTPException(status_code=401, detail="Incorrect email or password", headers={"WWW-Authenticate": "Bearer"})
-    if user.get("status") not in {"ACTIVE", "active"}:
+    
+    # Check user status
+    status = str(user.get("status", "")).lower()
+    if status == "blocked":
+        raise HTTPException(status_code=403, detail="Your account has been blocked. Please contact support.")
+    if status == "rejected":
+        raise HTTPException(status_code=403, detail="Your registration was rejected. Please contact support for more information.")
+    if status not in {"active", "pending"}:
         raise HTTPException(status_code=403, detail=f"Account is {user.get('status')}. Please contact support.")
+    
+    # Check email verification
     if not user.get("email_verified"):
-        await OTPService(db).send_email_verification(user["_id"], user["email"])
-        raise HTTPException(status_code=403, detail="Email not verified. A new verification code was sent to your inbox.")
+        background_tasks.add_task(_send_registration_notifications, db, user["_id"], user["email"])
+        raise HTTPException(status_code=403, detail="Email not verified. A verification code is being sent to your inbox.")
+
     if user.get("is_2fa_enabled") or (user.get("two_factor") or {}).get("enabled"):
         return await _create_2fa_challenge(db, user)
     return await _issue_login_response(db, user, request)
@@ -373,15 +401,13 @@ async def verify_email(payload: EmailVerificationRequest, db: Database = Depends
 
 
 @router.post("/resend-verification")
-async def resend_verification(payload: ResendVerificationRequest, db: Database = Depends(get_db)) -> Any:
+async def resend_verification(payload: ResendVerificationRequest, background_tasks: BackgroundTasks, db: Database = Depends(get_db)) -> Any:
     auth_service = AuthService(db)
     user = auth_service.get_user_by_email(payload.email)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    result = await OTPService(db).resend_email_verification(user["_id"], user["email"])
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
+    background_tasks.add_task(_send_registration_notifications, db, user["_id"], user["email"])
+    return {"success": True, "message": "Verification code is being sent to your inbox."}
 
 
 @router.post("/verify-2fa", response_model=LoginResponse)
@@ -485,7 +511,8 @@ async def _handle_oauth_callback(provider: str, code: str, state: str, db: Datab
                 "role": "user",
                 "is_admin": False,
                 "is_participant": True,
-                "status": "active",
+                "status": "pending",
+                "approval_status": "pending",
                 "kyc_status": "not_submitted",
                 "credit_score": 600,
                 "total_savings": 0.0,
@@ -594,16 +621,71 @@ async def apple_callback(request: Request, db: Database = Depends(get_db)) -> An
     return await _handle_oauth_callback("apple", code, state, db, callback_user_payload=user_payload)
 
 
+@router.get("/approval-status")
+async def get_approval_status(current_user=Depends(get_current_user)) -> Any:
+    """
+    Get user's approval status - used by frontend to show pending page or dashboard.
+    This endpoint does NOT require approval (uses get_current_user, not get_current_active_user).
+    """
+    status = str(current_user.get("status", "")).lower()
+    approval_status = str(current_user.get("approval_status", "") or "").lower()
+    if status == "active" and approval_status in {"", "pending"}:
+        approval_status = "approved"
+    role = str(current_user.get("role", "")).lower()
+    
+    # Check if user is approved
+    is_approved = (
+        role == "super_admin" or 
+        (status == "active" and approval_status == "approved")
+    )
+    can_access_dashboard = bool(user_to_response(current_user).get("can_access_dashboard"))
+    
+    return {
+        "user_id": str(current_user["_id"]),
+        "email": current_user.get("email"),
+        "full_name": current_user.get("full_name"),
+        "status": status,
+        "approval_status": approval_status,
+        "is_approved": is_approved,
+        "can_access_dashboard": can_access_dashboard,
+        "role": role,
+        "approved_at": current_user.get("approved_at"),
+        "rejected_at": current_user.get("rejected_at"),
+        "rejection_reason": current_user.get("rejection_reason"),
+        "message": (
+            "Your account is approved. You can access the dashboard." if is_approved
+            else "" if approval_status == "pending"
+            else f"Your account was rejected. Reason: {current_user.get('rejection_reason', 'Not specified')}" if approval_status == "rejected"
+            else "Your account is blocked. Please contact support." if status == "blocked"
+            else "Your account status is under review."
+        )
+    }
+
+
 @router.get("/onboarding-status")
-async def onboarding_status(current_user=Depends(get_current_user)) -> Any:
+async def onboarding_status(current_user=Depends(get_current_user), db: Database = Depends(get_db)) -> Any:
     security_questions = current_user.get("security_questions") or []
     two_factor = current_user.get("two_factor") or {}
     bank = current_user.get("bank_account") or {}
+    status = str(current_user.get("status", "")).lower()
+    approval_status = str(current_user.get("approval_status", "") or "").lower()
+    if status == "active" and approval_status in {"", "pending"}:
+        approval_status = "approved"
+    role = str(current_user.get("role", "")).lower()
+    
+    registration_files = current_user.get("registration_files") or {}
     profile_complete = bool(
         current_user.get("full_name", "").strip()
         and bank.get("account_number", "").strip()
         and bank.get("account_name", "").strip()
+        and registration_files.get("property_file")
+        and registration_files.get("wealth_files")
     )
+    # Provide detailed profile completion info (percentage, missing fields)
+    try:
+        profile_completion = AdminService(db)._check_profile_completion(current_user)
+    except Exception:
+        profile_completion = {"is_complete": profile_complete, "percentage": 0, "missing_fields": []}
     complete = bool(
         profile_complete
         and current_user.get("email_verified")
@@ -611,8 +693,17 @@ async def onboarding_status(current_user=Depends(get_current_user)) -> Any:
         and len(security_questions) >= 3
         and (current_user.get("is_2fa_enabled") or two_factor.get("enabled"))
     )
+    
+    # Check if user is approved
+    is_approved = (
+        role == "super_admin" or 
+        (status == "active" and approval_status == "approved")
+    )
+    can_access_dashboard = role == "super_admin" or is_approved
+    
     return {
         "profile_complete": profile_complete,
+        "profile_completion": profile_completion,
         "email_verified": bool(current_user.get("email_verified")),
         "phone_verified": bool(current_user.get("phone_verified")),
         "phone_number": current_user.get("phone_number"),
@@ -623,6 +714,10 @@ async def onboarding_status(current_user=Depends(get_current_user)) -> Any:
         "complete": complete,
         "full_name": current_user.get("full_name", ""),
         "bank_account": bank,
+        "status": status,
+        "approval_status": approval_status,
+        "is_approved": is_approved,
+        "can_access_dashboard": can_access_dashboard,
     }
 
 
@@ -849,7 +944,16 @@ async def refresh_token(refresh_token_data: RefreshToken, db: Database = Depends
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_authenticated_user(current_user=Depends(get_current_user)) -> Any:
+async def get_current_authenticated_user(current_user=Depends(get_current_user), db: Database = Depends(get_db)) -> Any:
+    if (
+        str(current_user.get("status", "")).lower() == "active"
+        and str(current_user.get("approval_status", "") or "").lower() in {"", "pending"}
+    ):
+        db["users"].update_one(
+            {"_id": current_user["_id"]},
+            {"$set": {"approval_status": "approved", "updated_at": utcnow()}},
+        )
+        current_user = AuthService(db).get_user_by_id(current_user["_id"]) or current_user
     return user_to_response(current_user)
 
 

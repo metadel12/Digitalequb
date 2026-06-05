@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
+import threading
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from pymongo.database import Database
 
-from ..core.mongo_utils import current_round_number, new_id, next_payment_due, utcnow, wallet_defaults
+from ..core.mongo_utils import current_round_number, current_round_total_collected, new_id, next_payment_due, utcnow, wallet_defaults
 from ..services.cbe_service import CommercialBankOfEthiopiaService
+
+logger = logging.getLogger(__name__)
 
 WINNER_PAYOUT_RATIO = 0.90
 SYSTEM_PAYOUT_RATIO = 0.10
@@ -32,26 +37,36 @@ def _push_notification(db, user_id: str, title: str, message: str,
 
 
 def _send_email_notification(db, user_id: str, subject: str, body: str) -> None:
-    """Queue an email notification via OTPService SMTP (fire-and-forget)."""
-    import asyncio
+    """Queue an email notification via OTPService senders (fire-and-forget)."""
     try:
         user = db["users"].find_one({"_id": str(user_id)}) or {}
         email = user.get("email")
         if not email:
             return
+
         from ..services.otp_service import OTPService
         svc = OTPService()
-        # Run async send in a new event loop if not already running
+
+        async def _send():
+            try:
+                if await svc._send_via_sendgrid(email, subject, body):
+                    return True
+            except Exception:
+                logger.exception("SendGrid mail failed for %s", email)
+            try:
+                if await svc._send_via_smtp(email, subject, body):
+                    return True
+            except Exception:
+                logger.exception("SMTP mail failed for %s", email)
+            return False
+
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(svc._send_via_smtp(email, subject, body))
-            else:
-                loop.run_until_complete(svc._send_via_smtp(email, subject, body))
-        except Exception:
-            pass
+            loop = asyncio.get_running_loop()
+            loop.create_task(_send())
+        except RuntimeError:
+            threading.Thread(target=lambda: asyncio.run(_send()), daemon=True).start()
     except Exception:
-        pass
+        logger.exception("Failed to queue email notification for %s", user.get("email"))
 
 
 class WalletService:
@@ -527,14 +542,15 @@ class WalletService:
         all_paid = all(bool(item.get("has_paid_current_round")) or int(item.get("contribution_count") or 0) >= round_number for item in updated_members)
         rules = dict(group.get("rules") or {})
         rules["ready_for_winner_selection"] = all_paid
-        rules["current_round_fund"] = round(float(group.get("contribution_amount") or 0) * len(updated_members), 2) if all_paid else 0.0
+        total_collected = current_round_total_collected({**group, "members": updated_members}, round_number)
+        rules["current_round_fund"] = total_collected if all_paid else 0.0
         rules["last_contribution_received_at"] = now
         round_payment = self.db["round_payments"].find_one({"group_id": str(group_id), "round_number": round_number}) or {
             "_id": new_id(),
             "group_id": str(group_id),
             "group_name": group.get("name"),
             "round_number": round_number,
-            "total_collected": round(float(group.get("contribution_amount") or 0) * len(updated_members), 2),
+            "total_collected": total_collected,
             "winner_id": None,
             "winner_amount": 0.0,
             "system_fee": 0.0,
@@ -543,6 +559,7 @@ class WalletService:
             "created_at": now,
             "completed_at": None,
         }
+        round_payment["total_collected"] = total_collected
         round_payment["payment_status"] = {
             "all_members_paid": all_paid,
             "paid_members": sorted({str(item.get("user_id")) for item in updated_members if item.get("has_paid_current_round")}),

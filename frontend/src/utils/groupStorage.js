@@ -83,15 +83,15 @@ const buildInitialMembers = (user, initialMembers = []) => {
 
 const buildRotationSchedule = (members, durationWeeks, startDate, contributionAmount) =>
     Array.from({ length: Math.max(durationWeeks || members.length || 1, 1) }, (_, index) => ({
-            round: index + 1,
-            memberId: null,
-            memberName: 'Pending winner',
-            date: new Date(
-                new Date(startDate || Date.now()).getTime() + index * 7 * 24 * 60 * 60 * 1000
-            ).toISOString(),
-            amount: Number(contributionAmount || 0) * Math.max(members.length, 1),
-            status: index === 0 ? 'pending' : 'scheduled',
-        }));
+        round: index + 1,
+        memberId: null,
+        memberName: 'Pending winner',
+        date: new Date(
+            new Date(startDate || Date.now()).getTime() + index * 7 * 24 * 60 * 60 * 1000
+        ).toISOString(),
+        amount: Number(contributionAmount || 0) * Math.max(members.length, 1),
+        status: index === 0 ? 'pending' : 'scheduled',
+    }));
 
 const buildStats = (members, contributionAmount, contributions = [], payouts = []) => ({
     totalContributions: contributions.reduce((sum, item) => sum + (item.amount || 0), 0),
@@ -330,10 +330,18 @@ const updateStoredGroupWith = (groupId, updater) => {
         if (String(group.id) !== String(groupId)) return group;
 
         updatedGroup = updater(group);
+        const memberCount = updatedGroup.members?.length || 0;
+        const availableSpots = Math.max(0, (updatedGroup.maxMembers || 0) - memberCount);
+
         updatedGroup = {
             ...updatedGroup,
-            memberCount: updatedGroup.members?.length || 0,
+            memberCount,
+            currentMembers: memberCount,
             lastActive: new Date().toISOString(),
+            rules: {
+                ...updatedGroup.rules,
+                available_spots: availableSpots,
+            },
         };
         updatedGroup.stats = buildStats(
             updatedGroup.members || [],
@@ -459,6 +467,9 @@ export const leaveStoredGroup = (groupId, userId) =>
         return {
             ...group,
             members: group.members.filter((member) => String(member.id) !== String(userId)),
+            upcomingPayments: (group.upcomingPayments || []).filter(
+                (payment) => String(payment.memberId) !== String(userId)
+            ),
             recentActivities: [
                 {
                     id: `activity-${Date.now()}`,
@@ -481,6 +492,9 @@ export const removeMemberFromStoredGroup = (groupId, memberId) =>
         return {
             ...group,
             members: group.members.filter((member) => String(member.id) !== String(memberId)),
+            upcomingPayments: (group.upcomingPayments || []).filter(
+                (payment) => String(payment.memberId) !== String(memberId)
+            ),
             recentActivities: [
                 {
                     id: `activity-${Date.now()}`,
@@ -620,7 +634,7 @@ export const drawStoredGroupWinner = (groupId, options = {}) =>
 
         const totalFund = Number((Number(group?.rules?.defaultContribution || 1000) * Math.max(group.memberCount || 1, 1)).toFixed(2));
         const roundFund = totalFund;
-        const winnerAmount = Number((roundFund * 0.75).toFixed(2));
+        const winnerAmount = Number((roundFund * 0.90).toFixed(2));
         const systemAmount = Number((roundFund - winnerAmount).toFixed(2));
         const remainingFundAfter = 0;
         const selectedBid = method === 'bid' ? getCurrentRoundBids(group, roundNumber)[0] : null;

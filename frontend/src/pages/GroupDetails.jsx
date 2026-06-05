@@ -137,7 +137,8 @@ import { format, formatDistanceToNow, differenceInDays, addDays, isAfter, isBefo
 import { useSnackbar } from 'notistack';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { groups as groupsAPI } from '../services/api';
+import api, { groups as groupsAPI, payments as paymentsAPI } from '../services/api';
+import useGroupStore from '../store/groupStore';
 import QRCode from '../components/common/QRCode';
 import {
     addContributionToStoredGroup,
@@ -239,6 +240,69 @@ const RoleChip = styled(Chip)(({ theme, role }) => {
     };
 });
 
+// Helper to safely resolve nested object fields from common registration shapes
+const resolveField = (obj, ...keys) => {
+    if (!obj) return '';
+    const tryResolve = (target) => {
+        for (const key of keys) {
+            if (!key) continue;
+            const parts = key.split('.');
+            let cur = target;
+            for (const part of parts) {
+                if (cur == null) break;
+                cur = cur[part];
+            }
+            if (cur != null && cur !== '') return cur;
+        }
+        return null;
+    };
+
+    // First try on the object itself
+    const direct = tryResolve(obj);
+    if (direct != null) return direct;
+
+    // If the object contains a raw/original payload, try that
+    if (obj.raw) {
+        const rawRes = tryResolve(obj.raw);
+        if (rawRes != null) return rawRes;
+    }
+
+    // also try nested `user` or `profile` objects if present
+    if (obj.user) {
+        const userRes = tryResolve(obj.user);
+        if (userRes != null) return userRes;
+    }
+    if (obj.profile) {
+        const profileRes = tryResolve(obj.profile);
+        if (profileRes != null) return profileRes;
+    }
+
+    return '';
+};
+
+// Deep search for common key names in nested objects (limited depth)
+const findInObject = (obj, keyNames = [], depth = 3) => {
+    if (!obj || typeof obj !== 'object' || depth <= 0) return null;
+
+    const queue = [obj];
+    while (queue.length) {
+        const current = queue.shift();
+        if (!current || typeof current !== 'object') continue;
+        for (const k of Object.keys(current)) {
+            try {
+                const value = current[k];
+                if (keyNames.includes(k) && value != null && value !== '') return value;
+                if (typeof value === 'object') queue.push(value);
+            } catch (e) {
+                // ignore
+            }
+        }
+    }
+
+    // fallback null
+    return null;
+};
+
 // Mock group data
 const mockGroup = {
     id: 1,
@@ -281,11 +345,11 @@ const mockGroup = {
         completionRate: 94
     },
     members: [
-        { id: 1, name: 'John Doe', email: 'john@example.com', phone: '+1 234 567 8900', avatar: null, role: 'admin', status: 'active', joinedAt: '2024-01-15T10:00:00Z', contributions: 12, totalPaid: 15000, lastPayment: '2024-03-15T10:00:00Z' },
-        { id: 2, name: 'Jane Smith', email: 'jane@example.com', phone: '+1 234 567 8901', avatar: null, role: 'moderator', status: 'active', joinedAt: '2024-01-16T11:30:00Z', contributions: 12, totalPaid: 15000, lastPayment: '2024-03-15T11:30:00Z' },
-        { id: 3, name: 'Bob Wilson', email: 'bob@example.com', phone: '+1 234 567 8902', avatar: null, role: 'member', status: 'active', joinedAt: '2024-01-20T09:15:00Z', contributions: 11, totalPaid: 13750, lastPayment: '2024-03-15T09:15:00Z' },
-        { id: 4, name: 'Alice Brown', email: 'alice@example.com', phone: '+1 234 567 8903', avatar: null, role: 'member', status: 'inactive', joinedAt: '2024-02-01T14:20:00Z', contributions: 5, totalPaid: 6250, lastPayment: '2024-02-15T14:20:00Z' },
-        { id: 5, name: 'Charlie Davis', email: 'charlie@example.com', phone: '+1 234 567 8904', avatar: null, role: 'member', status: 'pending', joinedAt: '2024-03-01T08:45:00Z', contributions: 0, totalPaid: 0, lastPayment: null },
+        { id: 1, name: 'John Doe', email: 'john@example.com', phone: '+1 234 567 8900', address: '123 Main St, Addis Ababa', otherAddress: 'PO Box 1020', avatar: null, role: 'admin', status: 'active', joinedAt: '2024-01-15T10:00:00Z', contributions: 12, totalPaid: 15000, lastPayment: '2024-03-15T10:00:00Z' },
+        { id: 2, name: 'Jane Smith', email: 'jane@example.com', phone: '+1 234 567 8901', address: '45 Bole Rd, Addis Ababa', otherAddress: 'Office: Bole Plaza 2', avatar: null, role: 'moderator', status: 'active', joinedAt: '2024-01-16T11:30:00Z', contributions: 12, totalPaid: 15000, lastPayment: '2024-03-15T11:30:00Z' },
+        { id: 3, name: 'Bob Wilson', email: 'bob@example.com', phone: '+1 234 567 8902', address: '12 Kazanchis Ave, Addis Ababa', otherAddress: 'Warehouse: Merkato', avatar: null, role: 'member', status: 'active', joinedAt: '2024-01-20T09:15:00Z', contributions: 11, totalPaid: 13750, lastPayment: '2024-03-15T09:15:00Z' },
+        { id: 4, name: 'Alice Brown', email: 'alice@example.com', phone: '+1 234 567 8903', address: '78 Bole Medhanialem, Addis Ababa', otherAddress: '', avatar: null, role: 'member', status: 'inactive', joinedAt: '2024-02-01T14:20:00Z', contributions: 5, totalPaid: 6250, lastPayment: '2024-02-15T14:20:00Z' },
+        { id: 5, name: 'Charlie Davis', email: 'charlie@example.com', phone: '+1 234 567 8904', address: '9 Sarbet St, Addis Ababa', otherAddress: '', avatar: null, role: 'member', status: 'pending', joinedAt: '2024-03-01T08:45:00Z', contributions: 0, totalPaid: 0, lastPayment: null },
     ],
     contributions: [
         { id: 1, memberId: 1, amount: 1250, date: '2024-03-15T10:00:00Z', status: 'completed', paymentMethod: 'card', reference: 'TRX-001' },
@@ -323,6 +387,20 @@ const mockGroup = {
 
 const normalizeApiGroupToView = (apiGroup) => {
     const contributionAmount = Number(apiGroup?.contribution_amount || 0);
+    // Helper to safely resolve nested member fields from common registration shapes
+    const resolveMemberField = (member, ...keys) => {
+        for (const key of keys) {
+            if (!key) continue;
+            const parts = key.split('.');
+            let cur = member;
+            for (const part of parts) {
+                if (cur == null) break;
+                cur = cur[part];
+            }
+            if (cur != null && cur !== '') return cur;
+        }
+        return '';
+    };
     const winnerHistory = (apiGroup?.rules?.winner_history || []).map((winner) => ({
         ...winner,
         memberId: winner.member_id || winner.memberId,
@@ -346,10 +424,14 @@ const normalizeApiGroupToView = (apiGroup) => {
         sentAt: notification.sent_at || notification.sentAt,
     }));
     const members = (apiGroup?.members || []).map((member, index) => ({
-        id: member.user_id,
-        name: member.full_name,
-        email: member.email || '',
-        phone: '',
+        id: member.user_id || member.id || member.user?.id || member.userId,
+        name: member.full_name || member.fullName || member.name || member.user?.full_name || member.user?.name || '',
+        email: resolveMemberField(member, 'email', 'user.email', 'user.contact.email', 'contact.email'),
+        phone: resolveMemberField(member, 'phone', 'mobile', 'user.phone', 'user.mobile', 'user.contact.phone', 'contact.phone', 'profile.phone', 'registration.phone'),
+        city: resolveMemberField(member, 'city', 'town', 'location_city', 'user.city', 'user.town', 'user.location.city', 'profile.city', 'registration.city'),
+        address: resolveMemberField(member, 'address', 'location', 'primary_address', 'user.address', 'user.location', 'profile.address'),
+        otherAddress: resolveMemberField(member, 'other_address', 'secondary_address', 'alternate_address', 'user.other_address', 'user.secondary_address'),
+        raw: member,
         avatar: null,
         role: String(apiGroup?.created_by) === String(member.user_id) || index === 0 ? 'admin' : 'member',
         status: 'active',
@@ -386,8 +468,8 @@ const normalizeApiGroupToView = (apiGroup) => {
             remainingFund: Number(apiGroup?.rules?.remaining_fund ?? apiGroup?.rules?.remainingFund ?? 0),
             systemWalletBalance: Number(apiGroup?.rules?.system_wallet_balance ?? apiGroup?.rules?.systemWalletBalance ?? 0),
             systemWalletLabel: apiGroup?.rules?.system_wallet_label || apiGroup?.rules?.systemWalletLabel || 'DigiEqub Earnings Wallet',
-            winnerPayoutPercent: Number(apiGroup?.rules?.winner_payout_percent ?? apiGroup?.rules?.winnerPayoutPercent ?? 75),
-            systemWalletPercent: Number(apiGroup?.rules?.system_wallet_percent ?? apiGroup?.rules?.systemWalletPercent ?? 25),
+            winnerPayoutPercent: Number(apiGroup?.rules?.winner_payout_percent ?? apiGroup?.rules?.winnerPayoutPercent ?? 90),
+            systemWalletPercent: Number(apiGroup?.rules?.system_wallet_percent ?? apiGroup?.rules?.systemWalletPercent ?? 10),
         },
         winnerSelectionMethod: apiGroup?.rules?.winner_selection_method || (apiGroup?.rules?.group_type === 'bid' ? 'bid' : 'random'),
         stats: {
@@ -474,6 +556,8 @@ const GroupDetails = () => {
     const [activeTab, setActiveTab] = useState(0);
     const [selectedMember, setSelectedMember] = useState(null);
     const [openMemberDialog, setOpenMemberDialog] = useState(false);
+    const [openAddressDialog, setOpenAddressDialog] = useState(false);
+    const [selectedAddressMember, setSelectedAddressMember] = useState(null);
     const [openInviteDialog, setOpenInviteDialog] = useState(false);
     const [openLeaveDialog, setOpenLeaveDialog] = useState(false);
     const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
@@ -483,12 +567,19 @@ const GroupDetails = () => {
     const [anchorEl, setAnchorEl] = useState(null);
     const [inviteCode, setInviteCode] = useState('');
     const [contributionAmount, setContributionAmount] = useState('');
-    const [contributionMethod, setContributionMethod] = useState('card');
+    const [paymentOption, setPaymentOption] = useState('full');
+    const [contributionMethod, setContributionMethod] = useState('wallet');
     const [paymentStep, setPaymentStep] = useState(0);
     const [paymentContext, setPaymentContext] = useState('contribution');
     const [activePaymentRecord, setActivePaymentRecord] = useState(null);
+    const [receiptHtml, setReceiptHtml] = useState('');
+    const [showReceiptDialog, setShowReceiptDialog] = useState(false);
+    const [loadingReceipt, setLoadingReceipt] = useState(false);
     const [paymentForm, setPaymentForm] = useState({
         referenceNumber: '',
+        transactionReference: '',
+        proofImage: '',
+        proofFileName: '',
         bankName: '',
         accountNumber: '',
         mobileProvider: 'TeleBirr',
@@ -498,7 +589,9 @@ const GroupDetails = () => {
         notes: '',
         receiptName: '',
         acceptTerms: false,
+        selectedMemberId: user?.id,
     });
+    const proofInputRef = useRef(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showQRCode, setShowQRCode] = useState(false);
     const [recentActivities, setRecentActivities] = useState([]);
@@ -540,7 +633,7 @@ const GroupDetails = () => {
         );
         const remainingFund = Number(group?.rules?.remainingFund ?? group?.rules?.remaining_fund ?? totalFund);
         const roundFund = totalFund;
-        const winnerPayout = Number((roundFund * 0.75).toFixed(2));
+        const winnerPayout = Number((roundFund * 0.90).toFixed(2));
         const systemShare = Number((roundFund - winnerPayout).toFixed(2));
 
         return {
@@ -968,6 +1061,7 @@ const GroupDetails = () => {
                 setGroup(updated);
                 setRecentActivities(updated?.recentActivities || []);
                 setAnalyticsData(updated?.stats || null);
+                setPaymentOption('full');
                 setContributionAmount(String(updated?.rules?.defaultContribution || group?.rules?.defaultContribution || 1000));
                 setContributionMethod('mobile');
                 setPaymentContext('join');
@@ -977,6 +1071,7 @@ const GroupDetails = () => {
             } else {
                 await groupsAPI.joinGroup(group.id);
                 await fetchGroup();
+                setPaymentOption('full');
                 setContributionAmount(String(expectedContributionAmount || group?.rules?.defaultContribution || 1000));
                 setContributionMethod('mobile');
                 setPaymentContext('join');
@@ -998,10 +1093,68 @@ const GroupDetails = () => {
         setIsSubmitting(true);
         try {
             if (isStoredGroup) {
-                leaveStoredGroup(group.id, user?.id);
+                const updated = leaveStoredGroup(group.id, user?.id);
+                setGroup(updated);
+                setRecentActivities(updated?.recentActivities || []);
+                setAnalyticsData(updated?.stats || null);
             }
+            else {
+                // Call API to leave and update local UI state so buttons change immediately
+                const resp = await groupsAPI.leaveGroup(group.id);
+                // update local stored groups list if present
+                try {
+                    const stored = JSON.parse(localStorage.getItem('user-groups') || '[]');
+                    const updated = stored.filter(id => id !== group.id);
+                    localStorage.setItem('user-groups', JSON.stringify(updated));
+                } catch (e) {
+                    // ignore
+                }
+
+                // update local group state so UI updates (member button and count)
+                setGroup(prev => prev ? {
+                    ...prev,
+                    members: (prev.members || []).filter((member) =>
+                        String(member.id) !== String(user?.id) &&
+                        String(member.email || '').toLowerCase() !== String(user?.email || '').toLowerCase()
+                    ),
+                    upcomingPayments: (prev.upcomingPayments || []).filter((payment) =>
+                        String(payment.memberId) !== String(user?.id)
+                    ),
+                    isMember: false,
+                    memberCount: Math.max((prev.memberCount || prev.currentMembers || 1) - 1, 0),
+                    currentMembers: Math.max((prev.currentMembers || prev.memberCount || 1) - 1, 0),
+                    rules: {
+                        ...(prev.rules || {}),
+                        available_spots: resp?.available_spots ?? ((prev.rules && typeof prev.rules.available_spots === 'number') ? prev.rules.available_spots + 1 : undefined)
+                    }
+                } : prev);
+
+                // update global group store so other lists/cards update
+                try {
+                    useGroupStore.setState(state => {
+                        const groups = Array.isArray(state.groups) ? [...state.groups] : [];
+                        const idx = groups.findIndex(g => String(g.id) === String(group.id));
+                        if (idx !== -1) {
+                            groups[idx] = { ...groups[idx], memberCount: Math.max((groups[idx].memberCount || 1) - 1, 0), isMember: false };
+                        }
+                        const currentGroup = state.currentGroup && String(state.currentGroup.id) === String(group.id)
+                            ? { ...state.currentGroup, memberCount: Math.max((state.currentGroup.memberCount || 1) - 1, 0), isMember: false }
+                            : state.currentGroup;
+
+                        return { ...state, groups, currentGroup, stats: { ...(state.stats || {}), totalMembers: Math.max(((state.stats && state.stats.totalMembers) || 1) - 1, 0) } };
+                    });
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            if (!isStoredGroup) {
+                await fetchGroup();
+            }
+
             enqueueSnackbar('Left group successfully', { variant: 'info' });
-            navigate('/groups');
+            // keep user on the page so buttons update; navigate away only if stored group
+            if (isStoredGroup) navigate('/groups');
         } catch (error) {
             enqueueSnackbar('Failed to leave group', { variant: 'error' });
         } finally {
@@ -1011,11 +1164,13 @@ const GroupDetails = () => {
 
     // Handle make contribution
     const handleMakeContribution = async () => {
-        const normalizedContributionAmount = parseFloat(contributionAmount);
         const expectedAmount = Number(expectedContributionAmount || group.rules.defaultContribution || 0);
+        const normalizedContributionAmount = paymentOption === 'half'
+            ? Number((expectedAmount / 2).toFixed(2))
+            : Number(expectedAmount);
 
         if (!Number.isFinite(normalizedContributionAmount) || normalizedContributionAmount <= 0) {
-            enqueueSnackbar('Please enter a valid amount greater than 0', { variant: 'error' });
+            enqueueSnackbar('Please select a valid payment option', { variant: 'error' });
             return;
         }
 
@@ -1024,24 +1179,98 @@ const GroupDetails = () => {
             return;
         }
 
+        // Validate bank transfer
+        if (contributionMethod === 'bank') {
+            if (!paymentForm.proofImage) {
+                enqueueSnackbar('Please upload receipt image', { variant: 'error' });
+                return;
+            }
+        }
+
         setIsSubmitting(true);
         setPaymentStep(1);
 
         try {
+            if (contributionMethod === 'bank') {
+                const generatedReference = `REF-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+                // Bank transfer - submit proof for admin approval
+                if (!isStoredGroup) {
+                    const response = await paymentsAPI.submitPaymentProof({
+                        group_id: group.id,
+                        amount: normalizedContributionAmount,
+                        transaction_reference: generatedReference,
+                        proof_image: paymentForm.proofImage,
+                    });
+
+                    setActivePaymentRecord({
+                        id: response?.data?.payment_id || `proof-${Date.now()}`,
+                        reference: generatedReference,
+                        status: 'pending',
+                        paymentMethod: 'bank',
+                        amount: normalizedContributionAmount,
+                        currency: group.currency || 'ETB',
+                        submittedAt: new Date().toISOString(),
+                        proofFileName: paymentForm.proofFileName,
+                    });
+                    setPaymentForm((prev) => ({ ...prev, referenceNumber: response?.data?.payment_id || '' }));
+                    setPaymentStep(2);
+                    enqueueSnackbar('Receipt submitted! Waiting for admin approval.', { variant: 'success' });
+                    setContributionAmount('');
+                    return;
+                }
+
+                // Stored group bank transfer
+                const initiatedPayment = initiateStoredPayment({
+                    user,
+                    group,
+                    amount: normalizedContributionAmount,
+                    paymentMethod: 'bank',
+                    notes: paymentForm.notes,
+                    paymentProof: {
+                        fileName: paymentForm.proofFileName,
+                    },
+                    dueDate: nextDuePayment?.dueDate || new Date().toISOString(),
+                    metadata: {
+                        memberId: resolveContributionMember(paymentForm.selectedMemberId).id,
+                        memberName: resolveContributionMember(paymentForm.selectedMemberId).name,
+                        transactionReference: generatedReference,
+                        context: paymentContext,
+                    },
+                });
+
+                setActivePaymentRecord({
+                    ...initiatedPayment,
+                    reference: generatedReference,
+                    status: 'pending',
+                    proofFileName: paymentForm.proofFileName,
+                });
+                setPaymentForm((prev) => ({ ...prev, referenceNumber: initiatedPayment.reference }));
+                setPaymentStep(2);
+                enqueueSnackbar('Receipt submitted! Waiting for admin approval.', { variant: 'success' });
+                setContributionAmount('');
+                return;
+            }
+
+            // Wallet payment via auto-receipt endpoint
             if (!isStoredGroup) {
                 const liveMember = resolveContributionMember(user?.id);
-                const response = await groupsAPI.contribute(group.id, normalizedContributionAmount);
+                const response = await paymentsAPI.submitWalletPayment({
+                    group_id: group.id,
+                    amount: normalizedContributionAmount,
+                    round_number: currentRound || 1,
+                    payment_type: 'contribution',
+                });
                 const liveContribution = {
-                    id: response.data.transaction_id,
-                    paymentId: response.data.transaction_id,
+                    id: response.data.payment_id,
+                    paymentId: response.data.payment_id,
                     memberId: liveMember.id,
                     memberName: liveMember.name,
                     amount: normalizedContributionAmount,
                     date: new Date().toISOString(),
-                    status: 'completed',
+                    status: 'pending',
                     paymentMethod: 'wallet',
-                    reference: response.data.wallet_reference,
-                    transactionHash: response.data.blockchain_tx,
+                    reference: response.data.receipt_number,
+                    receiptId: response.data.receipt_id,
                 };
 
                 setGroup((prev) => ({
@@ -1049,7 +1278,7 @@ const GroupDetails = () => {
                     contributions: [liveContribution, ...(prev?.contributions || [])],
                     stats: {
                         ...prev.stats,
-                        totalContributions: Number(prev?.stats?.totalContributions || 0) + normalizedContributionAmount,
+                        totalContributions: Number(prev?.stats?.totalContributions || 0),
                     },
                 }));
                 setRecentActivities((prev) => ([
@@ -1059,34 +1288,33 @@ const GroupDetails = () => {
                         userId: liveMember.id,
                         userName: liveMember.name,
                         timestamp: new Date().toISOString(),
-                        details: `Paid ETB ${Number(normalizedContributionAmount).toLocaleString()} from wallet`,
+                        details: `Submitted wallet payment of ETB ${Number(normalizedContributionAmount).toLocaleString()} for approval`,
                         amount: normalizedContributionAmount,
                     },
                     ...prev,
                 ]));
                 setActivePaymentRecord({
-                    id: response.data.transaction_id,
-                    reference: response.data.wallet_reference,
-                    status: 'completed',
+                    id: response.data.payment_id,
+                    reference: response.data.receipt_number,
+                    status: 'pending',
                     paymentMethod: 'wallet',
                     amount: normalizedContributionAmount,
                     currency: group.currency || 'ETB',
-                    paidAt: new Date().toISOString(),
+                    submittedAt: new Date().toISOString(),
+                    receiptId: response.data.receipt_id,
                 });
                 setPaymentStep(2);
-                window.dispatchEvent(new CustomEvent('wallet-updated', {
-                    detail: { newBalance: response.data.wallet_balance },
-                }));
-                enqueueSnackbar(`Payment of ETB ${normalizedContributionAmount} completed from your wallet`, { variant: 'success' });
+                enqueueSnackbar(`Payment of ETB ${normalizedContributionAmount} submitted and is pending admin approval`, { variant: 'success' });
                 setContributionAmount('');
                 return;
             }
 
+            // Stored group wallet payment
             const initiatedPayment = initiateStoredPayment({
                 user,
                 group,
                 amount: normalizedContributionAmount,
-                paymentMethod: contributionMethod,
+                paymentMethod: 'wallet',
                 notes: paymentForm.notes,
                 paymentProof: {
                     fileName: paymentForm.receiptName,
@@ -1095,12 +1323,6 @@ const GroupDetails = () => {
                 metadata: {
                     memberId: resolveContributionMember(paymentForm.selectedMemberId).id,
                     memberName: resolveContributionMember(paymentForm.selectedMemberId).name,
-                    bank_name: paymentForm.bankName,
-                    account_number: paymentForm.accountNumber,
-                    mobile_provider: paymentForm.mobileProvider,
-                    mobile_number: paymentForm.mobileNumber,
-                    card_last4: paymentForm.cardLast4,
-                    wallet_address: paymentForm.walletAddress,
                     context: paymentContext,
                 },
             });
@@ -1113,7 +1335,7 @@ const GroupDetails = () => {
             const confirmedPayment = confirmStoredPayment({
                 paymentId: initiatedPayment.id,
                 reference: initiatedPayment.reference,
-                transactionHash: contributionMethod === 'crypto' ? `0x${Date.now().toString(16)}` : '',
+                transactionHash: `0x${Date.now().toString(16)}`,
                 paymentProof: {
                     notes: paymentForm.notes,
                     fileName: paymentForm.receiptName,
@@ -1130,7 +1352,7 @@ const GroupDetails = () => {
                 amount: normalizedContributionAmount,
                 date: confirmedPayment.paidAt || new Date().toISOString(),
                 status: 'completed',
-                paymentMethod: contributionMethod,
+                paymentMethod: 'wallet',
                 reference: confirmedPayment.reference,
                 transactionHash: confirmedPayment.transactionHash,
             };
@@ -1178,14 +1400,73 @@ const GroupDetails = () => {
         }
     };
 
+    const handleViewReceipt = async () => {
+        const receiptId = activePaymentRecord?.receiptId;
+        if (!receiptId) {
+            enqueueSnackbar('Receipt is not available yet.', { variant: 'error' });
+            return;
+        }
+
+        setLoadingReceipt(true);
+        try {
+            const response = await paymentsAPI.getReceipt(receiptId);
+            const html = response.data?.receipt?.html || response.data?.html || '';
+
+            if (!html) {
+                throw new Error('Receipt content not found');
+            }
+
+            setReceiptHtml(html);
+            setShowReceiptDialog(true);
+        } catch (error) {
+            enqueueSnackbar(error?.response?.data?.detail || error?.message || 'Failed to load receipt', { variant: 'error' });
+            console.error('View receipt error:', error);
+        } finally {
+            setLoadingReceipt(false);
+        }
+    };
+
+    const handleProofFileChange = (event) => {
+        const file = event.target.files?.[0];
+        if (!file) {
+            setPaymentForm((prev) => ({ ...prev, proofImage: '', proofFileName: '' }));
+            return;
+        }
+
+        if (!file.type.startsWith('image/')) {
+            enqueueSnackbar('Please upload an image file', { variant: 'error' });
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            setPaymentForm((prev) => ({
+                ...prev,
+                proofImage: reader.result?.toString() || '',
+                proofFileName: file.name,
+            }));
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const resetProofFile = () => {
+        setPaymentForm((prev) => ({ ...prev, proofImage: '', proofFileName: '' }));
+        if (proofInputRef.current) {
+            proofInputRef.current.value = '';
+        }
+    };
+
     const handleOpenContributionFlow = () => {
         setPaymentContext('contribution');
         setPaymentStep(0);
         setActivePaymentRecord(null);
         setContributionAmount(String(expectedContributionAmount || group?.rules?.defaultContribution || 0));
-        setContributionMethod('card');
+        setContributionMethod('wallet');
         setPaymentForm({
             referenceNumber: '',
+            transactionReference: '',
+            proofImage: '',
+            proofFileName: '',
             bankName: '',
             accountNumber: '',
             mobileProvider: 'TeleBirr',
@@ -1197,6 +1478,7 @@ const GroupDetails = () => {
             acceptTerms: false,
             selectedMemberId: resolveContributionMember(user?.id).id,
         });
+        setPaymentOption('full');
         setOpenContributionDialog(true);
     };
 
@@ -1222,14 +1504,33 @@ const GroupDetails = () => {
         enqueueSnackbar('Payment saved for later. A reminder will stay in your payment history.', { variant: 'info' });
     };
 
-    const resetPaymentDialog = () => {
+    const resetPaymentDialog = async () => {
+        if (!isStoredGroup && activePaymentRecord?.status === 'pending' && activePaymentRecord?.id) {
+            try {
+                const statusResponse = await paymentsAPI.getPaymentStatus(activePaymentRecord.id);
+                const nextStatus = statusResponse?.data?.status;
+                if (nextStatus === 'verified') {
+                    enqueueSnackbar('Your payment has been approved by admin. Refreshing group details.', { variant: 'success' });
+                    await fetchGroup();
+                } else if (nextStatus === 'rejected') {
+                    enqueueSnackbar('Your payment proof was rejected by admin. Please review and resubmit.', { variant: 'error' });
+                }
+            } catch (error) {
+                console.warn('Unable to refresh payment status', error);
+            }
+        }
+
         setOpenContributionDialog(false);
         setPaymentStep(0);
         setPaymentContext('contribution');
         setActivePaymentRecord(null);
-        setContributionMethod('card');
+        setContributionMethod('wallet');
+        setPaymentOption('full');
         setPaymentForm({
             referenceNumber: '',
+            transactionReference: '',
+            proofImage: '',
+            proofFileName: '',
             bankName: '',
             accountNumber: '',
             mobileProvider: 'TeleBirr',
@@ -1239,6 +1540,7 @@ const GroupDetails = () => {
             notes: '',
             receiptName: '',
             acceptTerms: false,
+            selectedMemberId: user?.id,
         });
     };
 
@@ -1295,7 +1597,10 @@ const GroupDetails = () => {
                 setGroup(prev => ({
                     ...prev,
                     members: prev.members.filter(m => m.id !== memberId),
-                    memberCount: prev.memberCount - 1
+                    upcomingPayments: (prev.upcomingPayments || []).filter(
+                        (payment) => String(payment.memberId) !== String(memberId)
+                    ),
+                    memberCount: Math.max((prev.memberCount || 1) - 1, 0)
                 }));
             }
             enqueueSnackbar('Member removed', { variant: 'info' });
@@ -1783,6 +2088,35 @@ const GroupDetails = () => {
                     {activeTab === 0 && (
                         <Box sx={{ p: 3 }}>
                             <Grid container spacing={3}>
+                                <Grid size={{ xs: 12 }}>
+                                    <Card variant="outlined">
+                                        <CardHeader title="Group Summary" avatar={<GroupIcon />} />
+                                        <CardContent>
+                                            <Grid container spacing={2}>
+                                                <Grid item xs={12} sm={4}>
+                                                    <Typography variant="body2" color="text.secondary">Number of Members</Typography>
+                                                    <Typography variant="h6" fontWeight="bold">{group.memberCount}</Typography>
+                                                </Grid>
+                                                <Grid item xs={12} sm={4}>
+                                                    <Typography variant="body2" color="text.secondary">Number of Weeks</Typography>
+                                                    <Typography variant="h6" fontWeight="bold">
+                                                        {group.durationWeeks || group.rotationSchedule?.length || 'N/A'}
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid item xs={12} sm={4}>
+                                                    <Typography variant="body2" color="text.secondary">Winning Rate</Typography>
+                                                    <Typography variant="h6" fontWeight="bold">
+                                                        {group.rules?.winnerPayoutPercent
+                                                            ? `${group.rules.winnerPayoutPercent}%`
+                                                            : group.stats?.defaultRate
+                                                                ? `${group.stats.defaultRate}%`
+                                                                : 'N/A'}
+                                                    </Typography>
+                                                </Grid>
+                                            </Grid>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
                                 {/* Group Rules */}
                                 <Grid size={{ xs: 12, md: 6 }}>
                                     <Card variant="outlined">
@@ -1804,9 +2138,9 @@ const GroupDetails = () => {
                                                 <Stack direction="row" justifyContent="space-between">
                                                     <Typography variant="body2" color="text.secondary">Contribution Frequency</Typography>
                                                     <Typography variant="body2" fontWeight="bold">
-                                                        {group.rules.frequency === 'weekly'
-                                                            ? `Weekly, ETB ${group.rules.defaultContribution}`
-                                                            : `${group.rules.frequency}, ETB ${group.rules.defaultContribution}`}
+                                                        {group.rules.frequency
+                                                            ? `${group.rules.frequency.charAt(0).toUpperCase() + group.rules.frequency.slice(1)}, ETB ${group.rules.defaultContribution}`
+                                                            : `Undefined, ETB ${group.rules.defaultContribution}`}
                                                     </Typography>
                                                 </Stack>
                                                 <Stack direction="row" justifyContent="space-between">
@@ -2025,6 +2359,14 @@ const GroupDetails = () => {
                                                                 {member.phone}
                                                             </Typography>
                                                         )}
+                                                        {member.address && (
+                                                            <Typography variant="caption" display="block" color="text.secondary">
+                                                                <Stack direction="row" spacing={1} alignItems="center">
+                                                                    <LocationIcon sx={{ width: 16, height: 16 }} />
+                                                                    {member.address}
+                                                                </Stack>
+                                                            </Typography>
+                                                        )}
                                                         <RoleChip
                                                             label={member.role}
                                                             role={member.role}
@@ -2076,6 +2418,48 @@ const GroupDetails = () => {
                                                     )}
                                                 </Stack>
 
+                                                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }}>
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        startIcon={<LocationIcon />}
+                                                        onClick={async () => {
+                                                            try {
+                                                                // Fetch full user data from API
+                                                                const response = await api.get(`/users/${member.user_id || member.id}`);
+                                                                const userData = response.data;
+
+                                                                // Debug: Log the user data to see address structure
+                                                                console.log('User Data:', userData);
+                                                                console.log('Address:', userData.address);
+
+                                                                // Merge member data with full user data
+                                                                setSelectedAddressMember({
+                                                                    ...member,
+                                                                    ...userData,
+                                                                    phone_number: userData.phone_number || member.phone_number || member.phone,
+                                                                    email: userData.email || member.email,
+                                                                    address: userData.address || member.address || {},
+                                                                    // Try to extract address fields from different possible structures
+                                                                    city: userData.address?.city || userData.city || member.city,
+                                                                    street: userData.address?.street || userData.address?.address || userData.street || member.street,
+                                                                    country: userData.address?.country || userData.country || member.country
+                                                                });
+                                                                setOpenAddressDialog(true);
+                                                            } catch (error) {
+                                                                console.error('Error fetching user data:', error);
+                                                                // Fallback to member data only
+                                                                setSelectedAddressMember(member);
+                                                                setOpenAddressDialog(true);
+                                                            }
+                                                        }}
+                                                    >
+                                                        Other Address
+                                                    </Button>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {member.otherAddress ? 'Has alternate address' : 'No other address'}
+                                                    </Typography>
+                                                </Stack>
                                                 <LinearProgress
                                                     variant="determinate"
                                                     value={(member.contributions / group.rotationSchedule.length) * 100}
@@ -2225,7 +2609,7 @@ const GroupDetails = () => {
                                     <Card variant="outlined">
                                         <CardHeader
                                             title="Winner History"
-                                            subheader="Pick winners with a random draw or highest bid. Each payout sends 75% to the winner wallet and 25% to the system wallet."
+                                            subheader="Pick winners with a random draw or highest bid. Each payout sends 90% to the winner wallet and 10% to the system wallet."
                                             avatar={<EmojiEventsIcon />}
                                         />
                                         <CardContent sx={{ pt: 0 }}>
@@ -2272,11 +2656,11 @@ const GroupDetails = () => {
                                                     <Alert severity={winnerMethod === 'bid' ? 'warning' : 'info'}>
                                                         {winnerMethod === 'random'
                                                             ? isAdmin
-                                                                ? 'A random eligible member is selected. The winner gets 75% and the system wallet gets 25% of this round fund.'
-                                                                : 'A random eligible member is selected and the winner gets 75% of this round fund.'
+                                                                ? 'A random eligible member is selected. The winner gets 90% and the system wallet gets 10% of this round fund.'
+                                                                : 'A random eligible member is selected and the winner gets 90% of this round fund.'
                                                             : isAdmin
-                                                                ? 'Highest saved bid wins. The winner gets 75% and the system wallet gets 25% of this round fund.'
-                                                                : 'Highest saved bid wins and the winner gets 75% of this round fund.'}
+                                                                ? 'Highest saved bid wins. The winner gets 90% and the system wallet gets 10% of this round fund.'
+                                                                : 'Highest saved bid wins and the winner gets 90% of this round fund.'}
                                                     </Alert>
                                                 </Grid>
                                             </Grid>
@@ -2875,6 +3259,66 @@ const GroupDetails = () => {
                     </DialogContent>
                 </Dialog>
 
+                <Dialog open={openAddressDialog} onClose={() => setOpenAddressDialog(false)} maxWidth="xs" fullWidth>
+                    <DialogTitle>Member Contact & Addresses</DialogTitle>
+                    <DialogContent>
+                        {!selectedAddressMember ? (
+                            <Stack spacing={2} sx={{ mt: 1, alignItems: 'center', py: 4 }}>
+                                <CircularProgress />
+                                <Typography variant="body2" color="text.secondary">Loading member information...</Typography>
+                            </Stack>
+                        ) : (
+                            <Stack spacing={2} sx={{ mt: 1 }}>
+                                <Typography variant="h6" fontWeight={700}>{selectedAddressMember?.name || selectedAddressMember?.full_name || 'Member'}</Typography>
+
+                                <Stack>
+                                    <Typography variant="subtitle2" fontWeight={600}>Email</Typography>
+                                    <Typography variant="body2">
+                                        {selectedAddressMember?.email || 'No email available.'}
+                                    </Typography>
+                                </Stack>
+
+                                <Stack>
+                                    <Typography variant="subtitle2" fontWeight={600}>Phone</Typography>
+                                    <Typography variant="body2">
+                                        {selectedAddressMember?.phone_number || selectedAddressMember?.phone || 'No phone available.'}
+                                    </Typography>
+                                </Stack>
+
+                                <Stack>
+                                    <Typography variant="subtitle2" fontWeight={600}>City</Typography>
+                                    <Typography variant="body2" color={selectedAddressMember?.city || selectedAddressMember?.address?.city ? 'text.primary' : 'text.secondary'}>
+                                        {selectedAddressMember?.city || selectedAddressMember?.address?.city || 'Not provided - Please update profile'}
+                                    </Typography>
+                                </Stack>
+
+                                <Stack>
+                                    <Typography variant="subtitle2" fontWeight={600}>Primary Address</Typography>
+                                    <Typography variant="body2" color={selectedAddressMember?.street || selectedAddressMember?.address?.street || selectedAddressMember?.address?.address ? 'text.primary' : 'text.secondary'}>
+                                        {selectedAddressMember?.street || selectedAddressMember?.address?.street || selectedAddressMember?.address?.address || 'Not provided - Please update profile'}
+                                    </Typography>
+                                </Stack>
+
+                                <Stack>
+                                    <Typography variant="subtitle2" fontWeight={600}>Country</Typography>
+                                    <Typography variant="body2" color={selectedAddressMember?.country || selectedAddressMember?.address?.country ? 'text.primary' : 'text.secondary'}>
+                                        {selectedAddressMember?.country || selectedAddressMember?.address?.country || 'Not provided - Please update profile'}
+                                    </Typography>
+                                </Stack>
+
+                                {(!selectedAddressMember?.address || Object.keys(selectedAddressMember?.address || {}).length === 0) && (
+                                    <Alert severity="info" sx={{ mt: 2 }}>
+                                        This member hasn't added their address yet. They can update it in their profile settings.
+                                    </Alert>
+                                )}
+                            </Stack>
+                        )}
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => setOpenAddressDialog(false)}>Close</Button>
+                    </DialogActions>
+                </Dialog>
+
                 {/* Payment Dialog */}
                 <Dialog open={openContributionDialog} onClose={resetPaymentDialog} maxWidth="xs" fullWidth>
                     <DialogTitle>
@@ -2910,31 +3354,104 @@ const GroupDetails = () => {
                                     </Card>
 
                                     <TextField
-                                        label="Payment Amount"
-                                        type="number"
+                                        label="Payment Method"
+                                        select
                                         fullWidth
-                                        value={contributionAmount}
-                                        onChange={(e) => setContributionAmount(e.target.value)}
+                                        value={contributionMethod}
+                                        onChange={(e) => setContributionMethod(e.target.value)}
+                                        SelectProps={{ native: false }}
+                                        sx={{ mt: 2 }}
+                                    >
+                                        <MenuItem value="wallet">DigiEqub Wallet</MenuItem>
+                                        <MenuItem value="bank">Bank Transfer</MenuItem>
+                                    </TextField>
+
+                                    <TextField
+                                        label="Payment Option"
+                                        select
+                                        fullWidth
+                                        value={paymentOption}
+                                        onChange={(e) => {
+                                            const option = e.target.value;
+                                            setPaymentOption(option);
+                                            const expectedAmount = Number(expectedContributionAmount || group.rules.defaultContribution || 0);
+                                            const selectedAmount = option === 'half'
+                                                ? Number((expectedAmount / 2).toFixed(2))
+                                                : expectedAmount;
+                                            setContributionAmount(String(selectedAmount));
+                                        }}
+                                        SelectProps={{ native: true }}
                                         InputProps={{
                                             startAdornment: <Typography sx={{ mr: 1, color: 'text.secondary' }}>ETB</Typography>,
                                         }}
-                                        helperText={`Enter amount (0.01 - ${Number(expectedContributionAmount || 0).toLocaleString()} ETB). Partial payments receive proportional winnings.`}
-                                        placeholder={String(expectedContributionAmount || 0)}
-                                        inputProps={{
-                                            min: 0.01,
-                                            max: expectedContributionAmount || 0,
-                                            step: 0.01
-                                        }}
-                                    />
+                                        helperText={`Select full or half payment only. Partial payments receive proportional winnings.`}
+                                        sx={{ mt: 2 }}
+                                    >
+                                        <option value="full">Full Payment — ETB {Number(expectedContributionAmount || group.rules.defaultContribution || 0).toLocaleString()}</option>
+                                        <option value="half">Half Payment — ETB {Number((Number(expectedContributionAmount || group.rules.defaultContribution || 0) / 2).toFixed(2)).toLocaleString()}</option>
+                                    </TextField>
 
-                                    <Alert severity="info" icon={<WalletIcon />}>
-                                        Payment will be deducted directly from your DigiEqub wallet.
-                                    </Alert>
+                                    {contributionMethod === 'wallet' && (
+                                        <Alert severity="info" icon={<WalletIcon />} sx={{ mt: 2 }}>
+                                            Payment will be deducted directly from your DigiEqub wallet.
+                                        </Alert>
+                                    )}
 
-                                    {contributionAmount && parseFloat(contributionAmount) < (expectedContributionAmount || 0) && (
-                                        <Alert severity="warning">
-                                            You're paying {((parseFloat(contributionAmount) / (expectedContributionAmount || 1)) * 100).toFixed(0)}% of the expected amount.
-                                            Your winning payout will be proportionally reduced.
+                                    {contributionMethod === 'bank' && (
+                                        <>
+                                            <Alert severity="info" icon={<AccountBalanceIcon />} sx={{ mt: 2 }}>
+                                                Transfer to the bank account below, upload proof, and wait for admin approval.
+                                            </Alert>
+
+                                            <Card variant="outlined" sx={{ mt: 2, bgcolor: alpha(theme.palette.secondary.main, 0.04) }}>
+                                                <CardContent>
+                                                    <Typography variant="subtitle2" fontWeight={700}>Bank Account</Typography>
+                                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                                        Bank: <strong>Commercial Bank of Ethiopia</strong>
+                                                    </Typography>
+                                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                                        Account: <strong>1000529496331</strong>
+                                                    </Typography>
+                                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                                        Name: <strong>DigiEqub Collections</strong>
+                                                    </Typography>
+                                                </CardContent>
+                                            </Card>
+
+                                            {/* Transaction Reference auto-generated under the hood */}
+
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                ref={proofInputRef}
+                                                onChange={handleProofFileChange}
+                                                style={{ display: 'none' }}
+                                            />
+                                            <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 2 }}>
+                                                <Button
+                                                    variant="outlined"
+                                                    onClick={() => proofInputRef.current?.click()}
+                                                    fullWidth
+                                                >
+                                                    {paymentForm.proofFileName ? 'Replace Receipt' : 'Upload Receipt Image'}
+                                                </Button>
+                                                {paymentForm.proofFileName && (
+                                                    <Button variant="text" color="error" onClick={resetProofFile}>
+                                                        Reset
+                                                    </Button>
+                                                )}
+                                            </Stack>
+                                            {paymentForm.proofFileName && (
+                                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                                                    ✓ Receipt uploaded: {paymentForm.proofFileName}
+                                                </Typography>
+                                            )}
+                                        </>
+                                    )}
+
+                                    {paymentOption === 'half' && (
+                                        <Alert severity="warning" sx={{ mt: 2 }}>
+                                            You're paying 50% of the expected amount. Your winning payout will be proportionally reduced.
                                         </Alert>
                                     )}
                                 </>
@@ -2943,14 +3460,22 @@ const GroupDetails = () => {
                             {paymentStep === 1 && (
                                 <Box sx={{ py: 4, textAlign: 'center' }}>
                                     <CircularProgress sx={{ mb: 2 }} />
-                                    <Typography variant="h6" fontWeight={700}>Processing payment...</Typography>
-                                    <Typography color="text.secondary">Deducting from your wallet.</Typography>
+                                    <Typography variant="h6" fontWeight={700}>Processing...</Typography>
+                                    <Typography color="text.secondary">
+                                        {contributionMethod === 'bank'
+                                            ? 'Submitting receipt for admin verification.'
+                                            : 'Deducting from your wallet.'}
+                                    </Typography>
                                 </Box>
                             )}
 
                             {paymentStep === 2 && activePaymentRecord && (
                                 <Stack spacing={2}>
-                                    <Alert severity="success">Payment confirmed successfully!</Alert>
+                                    <Alert severity={activePaymentRecord.status === 'pending' ? 'warning' : 'success'}>
+                                        {activePaymentRecord.status === 'pending'
+                                            ? '⏳ Receipt submitted! Waiting for admin approval.'
+                                            : '✓ Payment confirmed successfully!'}
+                                    </Alert>
                                     <Card variant="outlined">
                                         <CardContent>
                                             <Stack spacing={1}>
@@ -2965,11 +3490,28 @@ const GroupDetails = () => {
                                                 </Stack>
                                                 <Stack direction="row" justifyContent="space-between">
                                                     <Typography variant="body2" color="text.secondary">Status</Typography>
-                                                    <Chip label="Completed" color="success" size="small" />
+                                                    <Chip
+                                                        label={activePaymentRecord.status === 'pending' ? 'Pending Approval' : 'Completed'}
+                                                        color={activePaymentRecord.status === 'pending' ? 'warning' : 'success'}
+                                                        size="small"
+                                                    />
                                                 </Stack>
                                             </Stack>
                                         </CardContent>
                                     </Card>
+                                    {activePaymentRecord.receiptId && (
+                                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                                            <Button
+                                                variant="outlined"
+                                                size="small"
+                                                startIcon={<ReceiptIcon />}
+                                                onClick={handleViewReceipt}
+                                                disabled={loadingReceipt}
+                                            >
+                                                {loadingReceipt ? 'Loading Receipt...' : 'View Receipt'}
+                                            </Button>
+                                        </Box>
+                                    )}
                                 </Stack>
                             )}
                         </Stack>
@@ -2981,18 +3523,52 @@ const GroupDetails = () => {
                                 <Button
                                     variant="contained"
                                     size="large"
-                                    startIcon={<WalletIcon />}
+                                    startIcon={contributionMethod === 'bank' ? <AccountBalanceIcon /> : <WalletIcon />}
                                     onClick={handleMakeContribution}
-                                    disabled={isSubmitting || !contributionAmount || parseFloat(contributionAmount) <= 0}
+                                    disabled={
+                                        isSubmitting ||
+                                        !contributionAmount ||
+                                        parseFloat(contributionAmount) <= 0 ||
+                                        (contributionMethod === 'bank' && !paymentForm.proofImage)
+                                    }
                                     fullWidth
                                 >
-                                    {isSubmitting ? <CircularProgress size={22} /> : `Pay ETB ${Number(contributionAmount || 0).toLocaleString()} from Wallet`}
+                                    {isSubmitting
+                                        ? <CircularProgress size={22} />
+                                        : contributionMethod === 'bank'
+                                            ? `Submit Receipt for ETB ${Number(contributionAmount || 0).toLocaleString()}`
+                                            : `Pay ETB ${Number(contributionAmount || 0).toLocaleString()} from Wallet`}
                                 </Button>
                             </>
                         )}
                         {paymentStep === 2 && (
                             <Button variant="contained" fullWidth onClick={resetPaymentDialog}>Done</Button>
                         )}
+                    </DialogActions>
+                </Dialog>
+
+                <Dialog
+                    open={showReceiptDialog}
+                    onClose={() => setShowReceiptDialog(false)}
+                    maxWidth="lg"
+                    fullWidth
+                >
+                    <DialogTitle>Receipt Preview</DialogTitle>
+                    <DialogContent>
+                        <Box sx={{ width: '100%', minHeight: 400 }}>
+                            {receiptHtml ? (
+                                <iframe
+                                    title="Receipt Preview"
+                                    srcDoc={receiptHtml}
+                                    style={{ width: '100%', minHeight: 500, border: 'none' }}
+                                />
+                            ) : (
+                                <Typography color="text.secondary">Receipt content is loading or unavailable.</Typography>
+                            )}
+                        </Box>
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => setShowReceiptDialog(false)}>Close</Button>
                     </DialogActions>
                 </Dialog>
             </Container>

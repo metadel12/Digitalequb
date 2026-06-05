@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from pymongo.database import Database
 
-from ..core.mongo_utils import current_round_number, new_id, next_payment_due, utcnow
+from ..core.mongo_utils import current_round_number, current_round_total_collected, new_id, next_payment_due, utcnow
 from ..models.payment_proof import PaymentProof
 
 WINNER_PAYOUT_RATIO = 0.90
@@ -138,7 +138,8 @@ class BankPaymentService:
 
         rules = dict(group.get("rules") or {})
         rules["ready_for_winner_selection"] = all_paid
-        rules["current_round_fund"] = round(float(group.get("contribution_amount") or 0) * len(updated_members), 2) if all_paid else 0.0
+        total_collected = current_round_total_collected({**group, "members": updated_members}, round_number)
+        rules["current_round_fund"] = total_collected if all_paid else 0.0
         rules["last_contribution_received_at"] = now
 
         # Update round payment status
@@ -147,7 +148,7 @@ class BankPaymentService:
             "group_id": payment_proof["group_id"],
             "group_name": group.get("name"),
             "round_number": round_number,
-            "total_collected": round(float(group.get("contribution_amount") or 0) * len(updated_members), 2),
+            "total_collected": total_collected,
             "winner_id": None,
             "winner_amount": 0.0,
             "system_fee": 0.0,
@@ -156,6 +157,7 @@ class BankPaymentService:
             "created_at": now,
             "completed_at": None,
         }
+        round_payment["total_collected"] = total_collected
 
         round_payment["payment_status"] = {
             "all_members_paid": all_paid,

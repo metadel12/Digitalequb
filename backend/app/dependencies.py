@@ -30,6 +30,30 @@ async def get_current_user(
 
 
 async def get_current_active_user(current_user=Depends(get_current_user)):
-    if current_user.get("status") != "ACTIVE" and current_user.get("status") != "active":
-        raise HTTPException(status_code=400, detail="Inactive user")
+    status = str(current_user.get("status", "")).lower()
+    approval_status = str(current_user.get("approval_status", "")).lower()
+    
+    # Allow super_admin to bypass approval check
+    role = str(current_user.get("role", "")).lower()
+    if role == "super_admin":
+        return current_user
+    
+    # Check if user status is valid
+    if status not in {"active", "pending"}:
+        raise HTTPException(status_code=403, detail=f"Account is {status}. Please contact support.")
+    
+    # Block users who are not yet approved by admin.
+    # Only super_admin can bypass this check.
+    if approval_status != "approved":
+        raise HTTPException(
+            status_code=403,
+            detail="Account pending approval. Please wait for an administrator to approve your account.",
+        )
+
+    if status != "active":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Account is {status}. Please contact support.",
+        )
+
     return current_user

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import PaymentForm from '../components/payments/PaymentForm';
+import EnhancedPaymentForm from '../components/payments/EnhancedPaymentForm';
 import { groupsAPI } from '../services/api';
 
 const PaymentsPage = () => {
@@ -81,10 +81,10 @@ const PaymentsPage = () => {
                 </motion.div>
 
                 {/* Payment Form */}
-                <PaymentForm
+                <EnhancedPaymentForm
                     groupId={groupId}
+                    groupName={group.name}
                     amount={group.contribution_amount}
-                    paymentType={paymentType}
                     onSuccess={handlePaymentSuccess}
                 />
             </div>

@@ -67,7 +67,11 @@ const GroupOversight = () => {
 
             const groupsData = Array.isArray(groupsResponse.data) ? groupsResponse.data : [];
             setGroups(groupsData);
-            setPendingPayments(Array.isArray(paymentsResponse.data) ? paymentsResponse.data : []);
+            setPendingPayments(
+                paymentsResponse.data?.payments ||
+                (Array.isArray(paymentsResponse.data) ? paymentsResponse.data : []) ||
+                []
+            );
 
             const memberResponses = await Promise.all(
                 groupsData.map(async (group) => {
@@ -423,8 +427,8 @@ const GroupOversight = () => {
                                         <Typography variant="body2">Join code: <strong>FAM2024</strong></Typography>
                                         <Typography variant="body2">Contribution: <strong>1,000 ETB weekly</strong></Typography>
                                         <Typography variant="body2">Duration: <strong>12 weeks</strong></Typography>
-                                        <Typography variant="body2">Winner split: <strong>75%</strong></Typography>
-                                        <Typography variant="body2">Platform fee: <strong>25%</strong></Typography>
+                                        <Typography variant="body2">Winner split: <strong>90%</strong></Typography>
+                                        <Typography variant="body2">Platform fee: <strong>10%</strong></Typography>
                                     </Stack>
                                 </CardContent>
                             </Card>
@@ -447,6 +451,41 @@ const GroupOversight = () => {
                                                     <Typography variant="body2" sx={{ mt: 0.5 }}>
                                                         {formatCurrency(payment.amount)} | Ref: {payment.transaction_reference}
                                                     </Typography>
+                                                    <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                                                        {payment.receipt_id ? (
+                                                            <Button size="small" variant="outlined" onClick={async () => {
+                                                                try {
+                                                                    const res = await api.get(`/payments/receipt/${payment.receipt_id}`);
+                                                                    const html = res.data?.receipt?.html;
+                                                                    const w = window.open();
+                                                                    if (w && html) { w.document.write(html); w.document.close(); }
+                                                                } catch (err) {
+                                                                    console.error(err);
+                                                                }
+                                                            }}>View Receipt</Button>
+                                                        ) : (
+                                                            <Button size="small" variant="outlined" disabled>View Receipt</Button>
+                                                        )}
+                                                        {payment.payment_source === 'wallet' || payment.wallet_pending ? (
+                                                            <Button size="small" variant="contained" onClick={async () => {
+                                                                try {
+                                                                    await api.post(`/payments/approve-wallet/${payment.payment_id}`, { notes: 'Approved via oversight' });
+                                                                    window.location.reload();
+                                                                } catch (err) {
+                                                                    console.error(err);
+                                                                }
+                                                            }}>Approve</Button>
+                                                        ) : (
+                                                            <Button size="small" variant="contained" onClick={async () => {
+                                                                try {
+                                                                    await api.post('/admin/payments/verify', { payment_id: payment.payment_id });
+                                                                    window.location.reload();
+                                                                } catch (err) {
+                                                                    console.error(err);
+                                                                }
+                                                            }}>Verify</Button>
+                                                        )}
+                                                    </Stack>
                                                 </Paper>
                                             ))
                                         )}

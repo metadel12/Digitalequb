@@ -86,6 +86,11 @@ initAnalytics();
 window.addEventListener('unhandledrejection', (event) => {
     const message = event?.reason?.message || String(event?.reason || '');
 
+    if (message.includes('A listener indicated an asynchronous response by returning true')) {
+        event.preventDefault();
+        return;
+    }
+
     if (
         message.includes('MetaMask extension not found') ||
         message.includes('Failed to connect to MetaMask')

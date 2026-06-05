@@ -116,6 +116,8 @@ import {
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import { format, formatDistanceToNow, differenceInDays, isAfter, isBefore } from 'date-fns';
+import { groups as groupsAPI } from '../../services/api';
+import useGroupStore from '../../store/groupStore';
 
 // Styled components
 const StyledCard = styled(Card)(({ theme }) => ({
@@ -486,17 +488,32 @@ const ActiveGroups = () => {
     const handleJoinGroup = async (groupId) => {
         setJoinLoading(true);
         try {
-            await new Promise(resolve => setTimeout(resolve, 800));
+            const resp = await groupsAPI.joinGroup(groupId);
             const updatedUserGroups = [...userGroups, groupId];
             setUserGroups(updatedUserGroups);
             localStorage.setItem('user-groups', JSON.stringify(updatedUserGroups));
 
-            // Update group member count
+            // Update group member count locally and in global store
             setGroups(prev => prev.map(group =>
                 group.id === groupId
-                    ? { ...group, memberCount: group.memberCount + 1 }
+                    ? { ...group, memberCount: (group.memberCount || 0) + 1, isMember: true }
                     : group
             ));
+            setSelectedGroup(prev => prev && String(prev.id) === String(groupId)
+                ? { ...prev, memberCount: (prev.memberCount || 0) + 1, isMember: true }
+                : prev
+            );
+            try {
+                useGroupStore.setState(state => {
+                    const groups = Array.isArray(state.groups) ? [...state.groups] : [];
+                    const idx = groups.findIndex(g => String(g.id) === String(groupId));
+                    if (idx !== -1) groups[idx] = { ...groups[idx], memberCount: (groups[idx].memberCount || 0) + 1, isMember: true };
+                    const currentGroup = state.currentGroup && String(state.currentGroup.id) === String(groupId)
+                        ? { ...state.currentGroup, memberCount: (state.currentGroup.memberCount || 0) + 1, isMember: true }
+                        : state.currentGroup;
+                    return { ...state, groups, currentGroup, stats: { ...(state.stats || {}), totalMembers: ((state.stats && state.stats.totalMembers) || 0) + 1 } };
+                });
+            } catch (e) {}
 
             showSnackbar('Successfully joined the group!', 'success');
             setOpenJoinDialog(false);
@@ -511,17 +528,32 @@ const ActiveGroups = () => {
     const handleLeaveGroup = async (groupId) => {
         setJoinLoading(true);
         try {
-            await new Promise(resolve => setTimeout(resolve, 800));
+            const resp = await groupsAPI.leaveGroup(groupId);
             const updatedUserGroups = userGroups.filter(id => id !== groupId);
             setUserGroups(updatedUserGroups);
             localStorage.setItem('user-groups', JSON.stringify(updatedUserGroups));
 
-            // Update group member count
+            // Update group member count locally and in global store
             setGroups(prev => prev.map(group =>
                 group.id === groupId && group.memberCount > 0
-                    ? { ...group, memberCount: group.memberCount - 1 }
+                    ? { ...group, memberCount: group.memberCount - 1, isMember: false }
                     : group
             ));
+            setSelectedGroup(prev => prev && String(prev.id) === String(groupId)
+                ? { ...prev, memberCount: Math.max((prev.memberCount || 1) - 1, 0), isMember: false }
+                : prev
+            );
+            try {
+                useGroupStore.setState(state => {
+                    const groups = Array.isArray(state.groups) ? [...state.groups] : [];
+                    const idx = groups.findIndex(g => String(g.id) === String(groupId));
+                    if (idx !== -1) groups[idx] = { ...groups[idx], memberCount: Math.max((groups[idx].memberCount || 1) - 1, 0), isMember: false };
+                    const currentGroup = state.currentGroup && String(state.currentGroup.id) === String(groupId)
+                        ? { ...state.currentGroup, memberCount: Math.max((state.currentGroup.memberCount || 1) - 1, 0), isMember: false }
+                        : state.currentGroup;
+                    return { ...state, groups, currentGroup, stats: { ...(state.stats || {}), totalMembers: Math.max(((state.stats && state.stats.totalMembers) || 1) - 1, 0) } };
+                });
+            } catch (e) {}
 
             showSnackbar('Left the group successfully', 'info');
             setOpenLeaveDialog(false);

@@ -91,12 +91,17 @@ class UserResponse(UserBase):
     phone_verified: bool = False
     role: str
     status: str
+    approval_status: str = "pending"
+    is_approved: bool = False
+    onboarding_complete: bool = False
+    can_access_dashboard: bool = False
     kyc_status: str
     credit_score: int
     wallet_address: Optional[str]
     bank_account: Optional[Dict[str, Any]] = None
     profile_picture: Optional[str]
     is_2fa_enabled: bool
+    address: Optional[Dict[str, Any]] = None
     created_at: datetime
     last_login: Optional[datetime]
     

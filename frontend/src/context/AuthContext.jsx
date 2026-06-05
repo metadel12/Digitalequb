@@ -160,19 +160,36 @@ export function AuthProvider({ children }) {
         const expiry = new Date(Date.now() + expiryDuration);
         localStorage.setItem('session_expiry', expiry.toISOString());
         setSessionExpiry(expiry);
-        setUser(responseData.user);
+        setUser({
+            ...responseData.user,
+            approval_status: responseData.user?.approval_status ?? responseData.approval_status,
+            is_approved: responseData.user?.is_approved ?? responseData.is_approved,
+            can_access_dashboard: responseData.user?.can_access_dashboard ?? responseData.can_access_dashboard,
+        });
         const displayName = responseData.user?.full_name || responseData.user?.name || responseData.user?.email;
         if (displayName) showSnackbar(`Welcome back, ${displayName}!`, 'success');
         // New social users with no phone → always go to complete-profile first
         const hasPhone = responseData.user?.phone_number && String(responseData.user.phone_number).trim() !== '';
         if (!hasPhone) {
-            navigate('/complete-profile', { replace: true });
+            navigate('/auth/onboarding', { replace: true });
             return;
         }
         try {
             const onboardingResponse = await api.get('/auth/onboarding-status');
-            if (!onboardingResponse.data?.complete) {
+            const status = onboardingResponse.data;
+            setUser(prev => prev ? ({
+                ...prev,
+                onboarding_complete: Boolean(status?.complete),
+                can_access_dashboard: Boolean(status?.can_access_dashboard),
+                approval_status: status?.approval_status ?? prev.approval_status,
+                status: status?.status ?? prev.status,
+            }) : prev);
+            if (!status?.complete) {
                 navigate('/auth/onboarding', { replace: true });
+                return;
+            }
+            if (!status?.can_access_dashboard) {
+                navigate('/pending', { replace: true });
                 return;
             }
         } catch (onboardingError) {
@@ -291,8 +308,13 @@ export function AuthProvider({ children }) {
                 handleTwoFactorChallenge(response.data);
                 return { requires_2fa: true };
             }
-            // Always go to /complete-profile for social logins — let finishLogin decide
-            const user = response.data.user;
+            // Always go to /complete-profile for social logins — let finishLogin decide when possible
+            const user = {
+                ...response.data.user,
+                approval_status: response.data.approval_status,
+                is_approved: response.data.is_approved,
+                can_access_dashboard: response.data.can_access_dashboard,
+            };
             const hasPhone = user?.phone_number && String(user.phone_number).trim() !== '';
             localStorage.setItem('access_token', response.data.access_token);
             localStorage.setItem('refresh_token', response.data.refresh_token);
@@ -302,10 +324,32 @@ export function AuthProvider({ children }) {
             setUser(user);
             const displayName = user?.full_name || user?.name || user?.email;
             if (displayName) showSnackbar(`Welcome, ${displayName}!`, 'success');
-            if (!hasPhone) {
-                navigate('/complete-profile', { replace: true });
-            } else {
-                navigate('/dashboard', { replace: true });
+            try {
+                const onboardingResponse = await api.get('/auth/onboarding-status');
+                const status = onboardingResponse.data;
+                setUser(prev => prev ? ({
+                    ...prev,
+                    onboarding_complete: Boolean(status?.complete),
+                    can_access_dashboard: Boolean(status?.can_access_dashboard),
+                    approval_status: status?.approval_status ?? prev.approval_status,
+                    status: status?.status ?? prev.status,
+                }) : prev);
+                if (!status?.complete) {
+                    navigate('/auth/onboarding', { replace: true });
+                } else if (!status?.can_access_dashboard) {
+                    navigate('/pending', { replace: true });
+                } else {
+                    navigate('/dashboard', { replace: true });
+                }
+            } catch (onboardingError) {
+                console.warn('Failed to load onboarding status after social login:', onboardingError);
+                if (!hasPhone) {
+                    navigate('/auth/onboarding', { replace: true });
+                } else if (!user.is_approved) {
+                    navigate('/pending', { replace: true });
+                } else {
+                    navigate('/dashboard', { replace: true });
+                }
             }
             return { success: true };
         } catch (err) {
@@ -359,6 +403,18 @@ export function AuthProvider({ children }) {
             return { error: err.message };
         }
     };
+
+    const refreshUser = useCallback(async () => {
+        try {
+            const response = await api.get('/auth/me');
+            setUser(response.data);
+            return { success: true, user: response.data };
+        } catch (err) {
+            const errorMessage = getApiErrorMessage(err, 'Failed to refresh user status.');
+            console.warn('Refresh user failed:', errorMessage);
+            return { error: errorMessage };
+        }
+    }, []);
 
     const changePassword = async (currentPassword, newPassword) => {
         try {
@@ -418,6 +474,7 @@ export function AuthProvider({ children }) {
         startTwoFactorChallenge,
         logout,
         updateUser,
+        refreshUser,
         changePassword,
         enableTwoFactor,
         disableTwoFactor,
@@ -426,7 +483,7 @@ export function AuthProvider({ children }) {
         hasPermission,
         twoFactorRequired,
         setTwoFactorRequired,
-    }), [user, loading, initializing, error, twoFactorRequired, backendOnline, hasRole, hasPermission, startSocialLogin, completeSocialLogin, startTwoFactorChallenge]);
+    }), [user, loading, initializing, error, twoFactorRequired, backendOnline, hasRole, hasPermission, startSocialLogin, completeSocialLogin, startTwoFactorChallenge, refreshUser]);
 
     if (initializing) {
         return (

@@ -18,6 +18,9 @@ import {
     ChevronDownIcon,
     SunIcon,
     MoonIcon,
+    QuestionMarkCircleIcon,
+    ChatBubbleLeftIcon,
+    WalletIcon,
 } from '@heroicons/react/24/outline';
 
 const AdminLayout = () => {
@@ -56,44 +59,50 @@ const AdminLayout = () => {
         {
             label: 'Payments',
             to: '/admin/payments',
-            icon: BellIcon,
+            icon: CurrencyDollarIcon,
             description: 'Review payment activity'
         },
         {
             label: 'Transactions',
             to: '/admin/transactions',
-            icon: CurrencyDollarIcon,
+            icon: ChartBarIcon,
             description: 'Monitor transactions'
         },
         {
             label: 'Credit Score',
             to: '/admin/credit-score',
-            icon: ChartBarIcon,
+            icon: DocumentTextIcon,
             description: 'View credit score insights'
         },
         {
-            label: 'KYC Verification',
-            to: '/admin/kyc',
-            icon: ShieldCheckIcon,
-            description: 'Verify user documents'
+            label: 'Wallet',
+            to: '/admin/wallet',
+            icon: WalletIcon,
+            description: 'Manage user wallets'
         },
         {
             label: 'Reports',
             to: '/admin/reports',
             icon: ChartBarIcon,
-            description: 'Generate reports'
-        },
-        {
-            label: 'Audit Logs',
-            to: '/admin/audit-logs',
-            icon: DocumentTextIcon,
-            description: 'System activity logs'
+            description: 'View analytics and reports'
         },
         {
             label: 'Settings',
             to: '/admin/settings',
             icon: Cog6ToothIcon,
             description: 'Platform configuration'
+        },
+        {
+            label: 'Help Center',
+            to: '/admin/help',
+            icon: QuestionMarkCircleIcon,
+            description: 'Support and documentation'
+        },
+        {
+            label: 'Feedback',
+            to: '/admin/feedback',
+            icon: ChatBubbleLeftIcon,
+            description: 'Send feedback and suggestions'
         },
     ];
 
@@ -102,14 +111,14 @@ const AdminLayout = () => {
             {/* Mobile sidebar overlay */}
             {sidebarOpen && (
                 <div
-                    className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
+                    className="fixed inset-0 bg-gray-900 bg-opacity-30 z-20 lg:hidden"
                     onClick={() => setSidebarOpen(false)}
                 />
             )}
 
             {/* Sidebar */}
             <aside
-                className={`fixed top-0 left-0 z-30 w-64 h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+                className={`fixed top-0 left-0 z-30 w-64 h-full bg-white dark:bg-white border-r border-gray-200 dark:border-gray-200 transform transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
                     } lg:translate-x-0`}
             >
                 <div className="flex flex-col h-full">
@@ -130,6 +139,26 @@ const AdminLayout = () => {
                         >
                             <XMarkIcon className="h-6 w-6" />
                         </button>
+                    </div>
+
+                    {/* Profile Card */}
+                    <div className="mx-3 my-4 rounded-xl bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-900/20 dark:to-primary-800/20 border border-primary-200 dark:border-primary-700/50 p-4">
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-primary-700 text-sm font-bold text-white">
+                                {user?.full_name?.charAt(0).toUpperCase() || 'A'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{user?.full_name || 'Admin'}</h3>
+                                <p className="text-xs text-gray-600 dark:text-gray-400 truncate">{user?.email || 'admin@digitequb.com'}</p>
+                            </div>
+                        </div>
+
+                        <div className="pt-3 border-t border-primary-200 dark:border-primary-700/50">
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-gray-700 dark:text-gray-300">Role</span>
+                                <span className="rounded-full bg-primary-600 px-2 py-0.5 text-white font-semibold">{user?.role || 'Admin'}</span>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Navigation */}

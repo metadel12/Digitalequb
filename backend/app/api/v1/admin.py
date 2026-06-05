@@ -23,6 +23,12 @@ class WinnerSelectPayload(BaseModel):
     group_id: str
 
 
+class AddMemberShortfallPayload(BaseModel):
+    group_id: str
+    member_email: str
+    shortfall_amount: float
+
+
 class UserActionPayload(BaseModel):
     user_id: str
     reason: Optional[str] = None
@@ -84,7 +90,12 @@ async def get_pending_payments(
 ):
     service = _get_admin_service(db)
     _require_single_admin(current_user, service)
-    return service.get_pending_payments(group_id)
+    payments = service.get_pending_payments(group_id)
+    return {
+        "success": True,
+        "payments": payments,
+        "count": len(payments),
+    }
 
 
 @router.post("/payments/verify")
@@ -331,3 +342,24 @@ async def select_winner_by_path(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, **result}
+
+
+@router.post("/groups/add-member-shortfall")
+async def add_member_for_shortfall(
+    payload: AddMemberShortfallPayload,
+    current_user=Depends(get_current_active_user),
+    db: Database = Depends(get_db),
+):
+    """Add a new member to a group to cover shortfall when partial payments exist."""
+    service = _get_admin_service(db)
+    _require_single_admin(current_user, service)
+    try:
+        result = service.add_member_for_shortfall(
+            payload.group_id,
+            payload.member_email,
+            payload.shortfall_amount,
+            str(current_user["_id"])
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result

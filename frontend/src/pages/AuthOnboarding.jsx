@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert, Box, Button, CircularProgress, MenuItem,
     Paper, Stack, Step, StepLabel, Stepper,
@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import OTPInput from '../components/common/OTPInput';
 import PhoneInput from '../components/common/PhoneInput';
+import { useAuth } from '../hooks/useAuth';
 import api, { extractErrorMessage } from '../services/api';
 
 const SECURITY_QUESTIONS = [
@@ -20,6 +21,7 @@ const SECURITY_QUESTIONS = [
 
 function AuthOnboarding() {
     const navigate = useNavigate();
+    const { refreshUser } = useAuth();
     const [status, setStatus] = useState(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
@@ -52,7 +54,7 @@ function AuthOnboarding() {
     const [backupCodes, setBackupCodes] = useState([]);
     const [setupStarted, setSetupStarted] = useState(false);
 
-    const fetchStatus = async () => {
+    const fetchStatus = useCallback(async () => {
         const res = await api.get('/auth/onboarding-status');
         const s = res.data;
         setStatus(s);
@@ -64,19 +66,35 @@ function AuthOnboarding() {
             if (match) { setPhoneCountryCode(match[1]); setPhoneNumber(match[2]); }
             else setPhoneNumber(s.phone_number);
         }
-        if (s.complete) navigate('/dashboard', { replace: true });
         return s;
-    };
+    }, [phoneNumber]);
 
     useEffect(() => {
         let mounted = true;
-        (async () => {
-            try { await fetchStatus(); }
-            catch (e) { if (mounted) setError(extractErrorMessage(e, 'Failed to load setup status.')); }
-            finally { if (mounted) setLoading(false); }
-        })();
-        return () => { mounted = false; };
-    }, []);
+        const loadStatus = async () => {
+            try {
+                const s = await fetchStatus();
+                if (s?.can_access_dashboard) {
+                    navigate('/dashboard', { replace: true });
+                    return;
+                }
+                if (s?.complete && !s?.can_access_dashboard) {
+                    await refreshUser();
+                    navigate('/pending', { replace: true });
+                    return;
+                }
+            } catch (e) {
+                if (mounted) setError(extractErrorMessage(e, 'Failed to load setup status.'));
+            } finally {
+                if (mounted) setLoading(false);
+            }
+        };
+
+        loadStatus();
+        return () => {
+            mounted = false;
+        };
+    }, [fetchStatus, navigate, refreshUser]);
 
     // Determine active step based on what's missing
     const activeStep = useMemo(() => {
@@ -147,13 +165,55 @@ function AuthOnboarding() {
         const res = await api.post('/auth/2fa/verify-setup', { method: twoFactorMethod, code: twoFactorCode });
         setBackupCodes(res.data.backup_codes || []);
         toast.success('2FA enabled.');
-        await fetchStatus();
+        const updated = await fetchStatus();
+        if (updated?.complete && !updated?.can_access_dashboard) {
+            await refreshUser();
+            navigate('/pending', { replace: true });
+        }
     });
 
     if (loading) {
         return (
             <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
                 <CircularProgress />
+            </Box>
+        );
+    }
+
+    const isAwaitingApproval = status?.complete && !status?.can_access_dashboard;
+
+    if (isAwaitingApproval) {
+        return (
+            <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2, background: 'linear-gradient(135deg, #f4f7f1 0%, #e1efe3 100%)' }}>
+                <Paper elevation={12} sx={{ width: '100%', maxWidth: 640, p: { xs: 4, md: 6 }, borderRadius: 4 }}>
+                    <Stack spacing={3}>
+                        <Box>
+                            <Typography variant="overline" color="primary.main">Approval Pending</Typography>
+                            <Typography variant="h5" fontWeight={700}>Your account is under review</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                We’ve received your registration and onboarding details. An administrator will review your account and approve access to the dashboard shortly.
+                            </Typography>
+                        </Box>
+                        <Alert severity="info">
+                            Approval status: <strong>{status?.approval_status || 'pending'}</strong><br />
+                            Account status: <strong>{status?.status || 'pending'}</strong>
+                        </Alert>
+                        <Typography variant="body2" color="text.secondary">
+                            If your account is still pending after a few minutes, please refresh this page or contact support.
+                        </Typography>
+                        <Stack direction="row" spacing={2}>
+                            <Button variant="contained" onClick={async () => {
+                                const updated = await fetchStatus();
+                                if (updated?.can_access_dashboard) navigate('/dashboard', { replace: true });
+                            }}>
+                                Refresh status
+                            </Button>
+                            <Button variant="outlined" onClick={() => navigate('/')}>
+                                Back to home
+                            </Button>
+                        </Stack>
+                    </Stack>
+                </Paper>
             </Box>
         );
     }
@@ -342,7 +402,7 @@ function AuthOnboarding() {
                                     </Button>
                                 )}
                             </Stack>
-                            {status?.two_factor_enabled && (
+                            {status?.two_factor_enabled && status?.can_access_dashboard && (
                                 <Button variant="contained" color="success" onClick={() => navigate('/dashboard', { replace: true })}>
                                     Go to dashboard →
                                 </Button>

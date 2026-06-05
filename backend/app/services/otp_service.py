@@ -90,11 +90,33 @@ class OTPService:
             msg["To"] = to
             msg["Subject"] = subject
             msg.attach(MIMEText(body, "html"))
-            srv = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
-            srv.starttls()
+            timeout = getattr(settings, "SMTP_TIMEOUT", 10)
+
+            if int(settings.SMTP_PORT) == 465:
+                srv = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=timeout)
+            else:
+                srv = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=timeout)
+                srv.ehlo()
+                try:
+                    srv.starttls()
+                    srv.ehlo()
+                except Exception:
+                    logger.warning("SMTP STARTTLS failed for %s:%s; attempting SMTP_SSL fallback", settings.SMTP_HOST, settings.SMTP_PORT)
+                    try:
+                        srv.quit()
+                    except Exception:
+                        pass
+                    srv = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=timeout)
+
             srv.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             srv.send_message(msg)
-            srv.quit()
+            try:
+                srv.quit()
+            except Exception:
+                try:
+                    srv.close()
+                except Exception:
+                    pass
             logger.info("Email sent to %s via SMTP", to)
             return True
         except Exception:

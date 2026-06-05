@@ -36,7 +36,8 @@ class AuthService:
             "role": UserRole.USER.value,
             "is_admin": False,
             "is_participant": True,
-            "status": UserStatus.ACTIVE.value,
+            "status": UserStatus.PENDING.value,
+            "approval_status": "pending",
             "kyc_status": KYCStatus.NOT_SUBMITTED.value,
             "credit_score": 600,
             "total_savings": 0.0,
@@ -106,7 +107,19 @@ class AuthService:
     def ensure_demo_user(self) -> Dict[str, Any]:
         existing = self.get_user_by_email("demo@digiequb.com")
         if existing:
-            return existing
+            # Update existing demo user to have approval_status
+            if not existing.get("approval_status"):
+                self.db["users"].update_one(
+                    {"_id": existing["_id"]},
+                    {
+                        "$set": {
+                            "approval_status": "approved",
+                            "status": UserStatus.ACTIVE.value,
+                            "updated_at": utcnow(),
+                        }
+                    }
+                )
+            return self.get_user_by_email("demo@digiequb.com")
         demo = UserCreate(
             email="demo@digiequb.com",
             phone_number="+15550000001",
@@ -114,7 +127,21 @@ class AuthService:
             password="Demo123!",
             confirm_password="Demo123!",
         )
-        return self.create_user(demo)
+        user = self.create_user(demo)
+        # Approve demo user immediately
+        self.db["users"].update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {
+                    "approval_status": "approved",
+                    "status": UserStatus.ACTIVE.value,
+                    "approved_by": "system",
+                    "approved_at": utcnow(),
+                    "updated_at": utcnow(),
+                }
+            }
+        )
+        return self.get_user_by_id(user["_id"])
 
     def ensure_system_admin(self) -> Dict[str, Any]:
         existing_admin = self.get_user_by_email(SYSTEM_ADMIN_EMAIL)
@@ -133,6 +160,7 @@ class AuthService:
             "is_admin": True,
             "is_participant": False,
             "status": UserStatus.ACTIVE.value,
+            "approval_status": "approved",
             "kyc_status": KYCStatus.VERIFIED.value,
             "credit_score": int((existing_admin or {}).get("credit_score", 850)),
             "total_savings": float((existing_admin or {}).get("total_savings", 0.0)),

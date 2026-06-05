@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: str = ""
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
+    SMTP_TIMEOUT: int = 10
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     FROM_EMAIL: str

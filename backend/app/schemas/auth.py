@@ -74,6 +74,9 @@ class LoginResponse(BaseModel):
     refresh_token: Optional[str] = None
     token_type: str = "bearer"
     user: Optional[UserResponse] = None
+    approval_status: Optional[str] = None
+    is_approved: Optional[bool] = None
+    can_access_dashboard: Optional[bool] = None
     requires_2fa: bool = False
     user_id: Optional[str] = None
     session_token: Optional[str] = None

@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
+import { payments } from '../../services/api';
 import {
     CreditCardIcon,
     BuildingLibraryIcon,
@@ -17,11 +18,15 @@ import {
     ArrowRightIcon
 } from '@heroicons/react/24/outline';
 
-const PaymentForm = ({ groupId, contributionAmount, onPaymentComplete }) => {
+const PaymentForm = ({ groupId, amount, onSuccess }) => {
     const [currentStep, setCurrentStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [transactionReference, setTransactionReference] = useState('');
     const [proofImage, setProofImage] = useState('');
+    const [proofFileName, setProofFileName] = useState('');
+    const [paymentOption, setPaymentOption] = useState('full');
+    const [submittedPayment, setSubmittedPayment] = useState(null);
+    const proofInputRef = useRef(null);
     const [adminAccount] = useState({
         account_number: '129761927',
         account_name: 'METADEL ABERE',
@@ -41,10 +46,6 @@ const PaymentForm = ({ groupId, contributionAmount, onPaymentComplete }) => {
     };
 
     const handleSubmitProof = async () => {
-        if (!transactionReference.trim()) {
-            toast.error('Please enter transaction reference');
-            return;
-        }
         if (!proofImage.trim()) {
             toast.error('Please upload proof image');
             return;
@@ -52,33 +53,63 @@ const PaymentForm = ({ groupId, contributionAmount, onPaymentComplete }) => {
 
         setLoading(true);
         try {
-            const response = await fetch('/api/v1/payments/submit-proof', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    group_id: groupId,
-                    amount: contributionAmount,
-                    transaction_reference: transactionReference,
-                    proof_image: proofImage
-                })
+            const generatedReference = `REF-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            const response = await payments.submitPaymentProof({
+                group_id: groupId,
+                amount: paymentOption === 'half' ? Number(amount) / 2 : Number(amount),
+                transaction_reference: generatedReference,
+                proof_image: proofImage
             });
 
-            const data = await response.json();
+            const data = response.data;
 
             if (data.success) {
+                const submittedAmount = paymentOption === 'half' ? Number(amount) / 2 : Number(amount);
+                setSubmittedPayment({
+                    amount: submittedAmount,
+                    paymentOption,
+                    transactionReference: generatedReference,
+                    proofFileName,
+                });
                 toast.success('Payment proof submitted successfully!');
                 setCurrentStep(3);
-                onPaymentComplete && onPaymentComplete();
+                onSuccess && onSuccess();
             } else {
                 toast.error(data.error || 'Failed to submit proof');
             }
         } catch (error) {
-            toast.error('Failed to submit payment proof');
+            toast.error(error?.response?.data?.detail || 'Failed to submit payment proof');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleProofFileChange = async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) {
+            setProofFileName('');
+            setProofImage('');
+            return;
+        }
+
+        if (!file.type.startsWith('image/')) {
+            toast.error('Please upload an image file');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            setProofImage(reader.result?.toString() || '');
+            setProofFileName(file.name);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const resetProofFile = () => {
+        setProofImage('');
+        setProofFileName('');
+        if (proofInputRef.current) {
+            proofInputRef.current.value = '';
         }
     };
 
@@ -136,11 +167,26 @@ const PaymentForm = ({ groupId, contributionAmount, onPaymentComplete }) => {
                                 Transfer to Admin Account
                             </h3>
                             <p className="text-gray-600">
-                                Transfer {contributionAmount?.toLocaleString()} ETB to the admin trustee account
+                                Choose full or half payment and transfer the amount to the admin trustee account.
                             </p>
                         </div>
 
-                        <div className="bg-blue-50 rounded-lg p-6 space-y-4">
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Payment Option
+                                </label>
+                                <select
+                                    value={paymentOption}
+                                    onChange={(e) => setPaymentOption(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                    <option value="full">Full Payment</option>
+                                    <option value="half">Half Payment</option>
+                                </select>
+                            </div>
+
+                            <div className="bg-blue-50 rounded-lg p-6 space-y-4">
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-medium text-gray-700">Bank:</span>
                                 <span className="text-sm text-gray-900">{adminAccount.bank_name}</span>
@@ -172,9 +218,10 @@ const PaymentForm = ({ groupId, contributionAmount, onPaymentComplete }) => {
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-medium text-gray-700">Amount:</span>
                                 <span className="text-sm font-semibold text-green-600">
-                                    {contributionAmount?.toLocaleString()} ETB
+                                    {(paymentOption === 'half' ? Number(amount) / 2 : Number(amount))?.toLocaleString()} ETB
                                 </span>
                             </div>
+                        </div>
                         </div>
 
                         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -216,34 +263,45 @@ const PaymentForm = ({ groupId, contributionAmount, onPaymentComplete }) => {
                         </div>
 
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Transaction Reference *
-                                </label>
-                                <input
-                                    type="text"
-                                    value={transactionReference}
-                                    onChange={(e) => setTransactionReference(e.target.value)}
-                                    placeholder="Enter the reference number from your transfer"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    required
-                                />
-                            </div>
+                            {/* Transaction Reference auto-generated under the hood */}
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Proof Image (Screenshot) *
                                 </label>
                                 <input
-                                    type="text"
-                                    value={proofImage}
-                                    onChange={(e) => setProofImage(e.target.value)}
-                                    placeholder="Enter image URL or upload screenshot"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    required
+                                    ref={proofInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleProofFileChange}
+                                    className="hidden"
                                 />
-                                <p className="text-xs text-gray-500 mt-1">
-                                    Upload a clear screenshot showing the transfer confirmation
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => proofInputRef.current?.click()}
+                                        className="inline-flex items-center justify-center rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
+                                    >
+                                        Upload Proof
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={resetProofFile}
+                                        disabled={!proofFileName}
+                                        className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors ${proofFileName ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
+                                <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                                    {proofFileName ? (
+                                        <span>Selected file: {proofFileName}</span>
+                                    ) : (
+                                        <span>No file selected yet. Click "Upload Proof" to choose a screenshot.</span>
+                                    )}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    Upload a clear screenshot showing the transfer confirmation.
                                 </p>
                             </div>
                         </div>
@@ -291,15 +349,50 @@ const PaymentForm = ({ groupId, contributionAmount, onPaymentComplete }) => {
                             </p>
                         </div>
 
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                            <div className="flex">
-                                <ClockIcon className="w-5 h-5 text-blue-400 mr-2" />
-                                <div className="text-sm text-blue-800">
-                                    <p className="font-medium">What happens next?</p>
-                                    <p>The admin will review your payment proof and verify the transaction. You'll receive a notification once verified.</p>
+                        {submittedPayment ? (
+                            <div className="space-y-4">
+                                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm text-left">
+                                    <div className="grid gap-4 sm:grid-cols-2">
+                                        <div>
+                                            <p className="text-sm text-gray-500">Payment Option</p>
+                                            <p className="text-base font-semibold text-gray-900">{submittedPayment.paymentOption === 'half' ? 'Half Payment' : 'Full Payment'}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-gray-500">Amount</p>
+                                            <p className="text-base font-semibold text-green-700">ETB {Number(submittedPayment.amount).toLocaleString()}</p>
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <p className="text-sm text-gray-500">Reference</p>
+                                            <p className="font-medium text-gray-900 break-all">{submittedPayment.transactionReference}</p>
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <p className="text-sm text-gray-500">Receipt File</p>
+                                            <p className="font-medium text-gray-900 break-all">{submittedPayment.proofFileName || 'N/A'}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                    <div className="flex">
+                                        <ClockIcon className="w-5 h-5 text-blue-400 mr-2" />
+                                        <div className="text-sm text-blue-800">
+                                            <p className="font-medium">What happens next?</p>
+                                            <p>The admin will review your payment proof and verify the transaction. You'll receive a notification once verified.</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                <div className="flex">
+                                    <ClockIcon className="w-5 h-5 text-blue-400 mr-2" />
+                                    <div className="text-sm text-blue-800">
+                                        <p className="font-medium">What happens next?</p>
+                                        <p>The admin will review your payment proof and verify the transaction. You'll receive a notification once verified.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         <button
                             onClick={() => window.location.reload()}

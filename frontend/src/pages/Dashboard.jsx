@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../context/ThemeContext';
-import { groups as groupsApi } from '../services/api';
+import { groups as groupsApi, payments as paymentsAPI } from '../services/api';
 import dashboardService from '../services/dashboardService';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import WelcomeBanner from '../components/dashboard/WelcomeBanner';
@@ -160,9 +160,13 @@ export default function Dashboard() {
         }
 
         try {
-            const response = await groupsApi.contribute(payment.groupId, amount);
-            toast.success(response.data?.message || 'Contribution paid successfully');
-            window.dispatchEvent(new CustomEvent('wallet-updated', { detail: { newBalance: response.data?.wallet_balance } }));
+            const response = await paymentsAPI.submitWalletPayment({
+                group_id: payment.groupId,
+                amount,
+                round_number: 1,
+                payment_type: 'contribution',
+            });
+            toast.success(response.data?.message || 'Contribution submitted successfully');
             refreshAll();
         } catch (error) {
             toast.error(error?.response?.data?.detail || 'Unable to complete payment');

@@ -223,7 +223,8 @@ const UserManagement = () => {
                         </TableHead>
                         <TableBody>
                             {filteredUsers.map((user) => {
-                                const meta = STATUS_META[user.status] || STATUS_META.pending;
+                                const displayStatus = user.approval_status && user.approval_status !== 'approved' ? user.approval_status : user.status;
+                                const meta = STATUS_META[displayStatus] || STATUS_META.pending;
                                 return (
                                     <TableRow key={user._id} hover onClick={() => setSelectedUser(user)} sx={{ cursor: 'pointer' }}>
                                         <TableCell>
@@ -235,7 +236,7 @@ const UserManagement = () => {
                                                 size="small"
                                                 color={meta.color}
                                                 icon={meta.icon}
-                                                label={String(user.status || 'pending').toUpperCase()}
+                                                label={String(displayStatus || 'pending').toUpperCase()}
                                             />
                                         </TableCell>
                                         <TableCell>
@@ -260,7 +261,7 @@ const UserManagement = () => {
                                         <TableCell>{formatDate(user.created_at)}</TableCell>
                                         <TableCell align="right" onClick={(event) => event.stopPropagation()}>
                                             <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
-                                                {user.status === 'pending' && (
+                                                {user.approval_status !== 'approved' && user.status !== 'deleted' && (
                                                     <>
                                                         <Button size="small" variant="contained" onClick={() => handleAction('approve', user)}>
                                                             Approve

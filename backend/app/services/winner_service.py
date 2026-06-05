@@ -20,6 +20,8 @@ class WinnerService:
         self.wallet_service = WalletService(db)
 
     def get_groups_ready_for_winner(self) -> List[Dict[str, Any]]:
+        from ..core.mongo_utils import current_round_total_collected
+        
         groups = list(self.db["groups"].find({"status": "active"}))
         ready_groups: List[Dict[str, Any]] = []
         for group in groups:
@@ -34,15 +36,43 @@ class WinnerService:
             if not all_paid or round_completed:
                 continue
 
-            total_collected = round(float(group.get("contribution_amount", 0)) * len(members), 2)
+            contribution_amount = float(group.get("contribution_amount", 0))
+            
+            # Calculate round 1 baseline (fixed expected amount for all rounds)
+            round1_total = 0.0
+            for member in members:
+                round_contribs = member.get("round_contributions") or {}
+                round1_total += float(round_contribs.get("1", 0))
+            
+            # For round 1: calculate from actual payments; for round 2+: use round 1 baseline
+            if round_number == 1:
+                expected_amount = 0.0
+                for member in members:
+                    round_contribs = member.get("round_contributions") or {}
+                    paid_amount = float(round_contribs.get("1", 0))
+                    if paid_amount > 0:
+                        expected_amount += paid_amount
+                    else:
+                        expected_amount += contribution_amount
+            else:
+                # Round 2+: use round 1 total as fixed baseline
+                expected_amount = round1_total if round1_total > 0 else len(members) * contribution_amount
+            
+            # Get actual collected for current round
+            total_collected = current_round_total_collected(group, round_number)
+            
             ready_groups.append(
                 {
                     "group_id": str(group["_id"]),
                     "group_name": group.get("name", "Unnamed Group"),
                     "current_round": round_number,
                     "total_rounds": int(group.get("total_rounds") or group_total_rounds(group)),
+                    "contribution_amount": contribution_amount,
+                    "expected_amount": expected_amount,
+                    "total_collected": total_collected,
                     "prize_pool": total_collected,
                     "members_count": len(members),
+                    "total_members": len(members),
                     "members": [
                         {
                             "user_id": str(member.get("user_id")),

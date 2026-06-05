@@ -11,6 +11,7 @@ import {
     DialogActions,
     DialogContent,
     DialogTitle,
+    TextField,
     Grid,
     LinearProgress,
     Stack,
@@ -45,6 +46,11 @@ const WinnerManager = () => {
     const [winnerResult, setWinnerResult] = useState(null);
     const [selectedGroup, setSelectedGroup] = useState(null);
     const [memberDialog, setMemberDialog] = useState({ open: false, group: null, loading: false, members: [], currentRound: null });
+    const [shortfallModalOpen, setShortfallModalOpen] = useState(false);
+    const [shortfallGroup, setShortfallGroup] = useState(null);
+    const [shortfallAmount, setShortfallAmount] = useState(0);
+    const [shortfallSubmitting, setShortfallSubmitting] = useState(false);
+    const [shortfallEmail, setShortfallEmail] = useState('');
 
     const fetchReadyGroups = async () => {
         setLoading(true);
@@ -134,12 +140,12 @@ const WinnerManager = () => {
         },
         {
             label: 'Potential Winner Payouts',
-            value: `${groups.reduce((sum, group) => sum + (group.prize_pool * 0.75), 0).toLocaleString()} ETB`,
+            value: `${groups.reduce((sum, group) => sum + (group.prize_pool * 0.90), 0).toLocaleString()} ETB`,
             icon: <EmojiEventsIcon color="warning" />,
         },
         {
             label: 'Platform Fees',
-            value: `${groups.reduce((sum, group) => sum + (group.prize_pool * 0.25), 0).toLocaleString()} ETB`,
+            value: `${groups.reduce((sum, group) => sum + (group.prize_pool * 0.10), 0).toLocaleString()} ETB`,
             icon: <PaidIcon color="secondary" />,
         },
     ]), [groups]);
@@ -148,7 +154,7 @@ const WinnerManager = () => {
         <Box>
             <Typography variant="h5" fontWeight={800} sx={{ mb: 1 }}>Winner Management</Typography>
             <Typography color="text.secondary" sx={{ mb: 3 }}>
-                Select round winners after every member has paid. Winners receive 75% and the platform wallet keeps 25%.
+                Select round winners after every member has paid. Winners receive 90% and the platform wallet keeps 10%.
             </Typography>
 
             <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -187,21 +193,44 @@ const WinnerManager = () => {
                                         <Typography variant="body2" color="text.secondary">All members paid for the current round.</Typography>
                                         <Stack spacing={0.5}>
                                             <Typography variant="body2">Prize Pool: <strong>{group.prize_pool.toLocaleString()} ETB</strong></Typography>
-                                            <Typography variant="body2">Winner gets: <strong>{(group.prize_pool * 0.75).toLocaleString()} ETB</strong></Typography>
-                                            <Typography variant="body2">Platform fee: <strong>{(group.prize_pool * 0.25).toLocaleString()} ETB</strong></Typography>
+                                            <Typography variant="body2">Winner gets: <strong>{(group.prize_pool * 0.90).toLocaleString()} ETB</strong></Typography>
+                                            <Typography variant="body2">Platform fee: <strong>{(group.prize_pool * 0.10).toLocaleString()} ETB</strong></Typography>
                                             <Typography variant="body2">Members: <strong>{group.members_count}</strong></Typography>
                                         </Stack>
                                         <Stack direction="row" spacing={1}>
                                             <Button fullWidth variant="outlined" onClick={() => openMembers(group)}>Members</Button>
-                                            <Button
-                                                fullWidth
-                                                variant="contained"
-                                                startIcon={<CasinoIcon />}
-                                                disabled={selectingGroupId === group.group_id}
-                                                onClick={() => handleSelectWinner(group)}
-                                            >
-                                                Select Winner
-                                            </Button>
+                                            {(() => {
+                                                const expected = Number(group.expected_amount ?? ((group.total_members || group.members_count || 0) * (group.contribution_amount || 0)));
+                                                const shortfall = Math.max(0, expected - (group.total_collected || 0));
+                                                if (shortfall > 0.01) {
+                                                    return (
+                                                        <Button
+                                                            fullWidth
+                                                            variant="contained"
+                                                            color="warning"
+                                                            onClick={() => {
+                                                                setShortfallGroup(group);
+                                                                setShortfallAmount(shortfall);
+                                                                setShortfallEmail('');
+                                                                setShortfallModalOpen(true);
+                                                            }}
+                                                        >
+                                                            ⚠️ Handle Shortfall
+                                                        </Button>
+                                                    );
+                                                }
+                                                return (
+                                                    <Button
+                                                        fullWidth
+                                                        variant="contained"
+                                                        startIcon={<CasinoIcon />}
+                                                        disabled={selectingGroupId === group.group_id}
+                                                        onClick={() => handleSelectWinner(group)}
+                                                    >
+                                                        Select Winner
+                                                    </Button>
+                                                );
+                                            })()}
                                         </Stack>
                                     </Stack>
                                 </CardContent>
@@ -235,6 +264,46 @@ const WinnerManager = () => {
                 </DialogContent>
             </Dialog>
 
+            <Dialog open={shortfallModalOpen} onClose={() => setShortfallModalOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>⚠️ Handle Shortfall</DialogTitle>
+                <DialogContent>
+                    <Stack spacing={2} sx={{ py: 1 }}>
+                        <Typography variant="body2">Group: <strong>{shortfallGroup?.group_name}</strong></Typography>
+                        <Typography variant="body2">Expected: <strong>{(Number(shortfallGroup?.expected_amount ?? ((shortfallGroup?.total_members || shortfallGroup?.members_count || 0) * (shortfallGroup?.contribution_amount || 0)))).toLocaleString()} ETB</strong></Typography>
+                        <Typography variant="body2">Collected: <strong>{(shortfallGroup?.total_collected || 0).toLocaleString()} ETB</strong></Typography>
+                        <Typography variant="body2">Shortfall: <strong style={{ color: 'red' }}>{shortfallAmount.toLocaleString()} ETB</strong></Typography>
+                        <TextField label="New member email" type="email" value={shortfallEmail} onChange={(e) => setShortfallEmail(e.target.value)} fullWidth />
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShortfallModalOpen(false)}>Cancel</Button>
+                    <Button
+                        variant="contained"
+                        disabled={shortfallSubmitting || !shortfallEmail}
+                        onClick={async () => {
+                            if (!shortfallGroup) return;
+                            setShortfallSubmitting(true);
+                            try {
+                                await api.post('/admin/groups/add-member-shortfall', {
+                                    group_id: shortfallGroup.group_id,
+                                    member_email: shortfallEmail,
+                                    shortfall_amount: shortfallAmount,
+                                });
+                                enqueueSnackbar('New member added successfully to cover shortfall!', { variant: 'success' });
+                                setShortfallModalOpen(false);
+                                await fetchReadyGroups();
+                            } catch (err) {
+                                enqueueSnackbar(err?.response?.data?.detail || 'Failed to add member', { variant: 'error' });
+                            } finally {
+                                setShortfallSubmitting(false);
+                            }
+                        }}
+                    >
+                        {shortfallSubmitting ? 'Adding...' : 'Add Member'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
             <Dialog open={Boolean(winnerResult)} onClose={() => setWinnerResult(null)} maxWidth="sm" fullWidth>
                 <DialogTitle>Winner Selected</DialogTitle>
                 <DialogContent>
@@ -251,7 +320,7 @@ const WinnerManager = () => {
                                     <CardContent>
                                         <Typography variant="body2" color="text.secondary">Winner Share</Typography>
                                         <Typography variant="h6" fontWeight={800}>{Number(winnerResult?.winner_amount || 0).toLocaleString()} ETB</Typography>
-                                        <Typography variant="caption">75%</Typography>
+                                        <Typography variant="caption">90%</Typography>
                                     </CardContent>
                                 </Card>
                             </Grid>
@@ -260,7 +329,7 @@ const WinnerManager = () => {
                                     <CardContent>
                                         <Typography variant="body2" color="text.secondary">Platform Fee</Typography>
                                         <Typography variant="h6" fontWeight={800}>{Number(winnerResult?.system_fee || 0).toLocaleString()} ETB</Typography>
-                                        <Typography variant="caption">25%</Typography>
+                                        <Typography variant="caption">10%</Typography>
                                     </CardContent>
                                 </Card>
                             </Grid>

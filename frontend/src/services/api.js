@@ -692,9 +692,12 @@ export const payments = {
     verifyBankAccount: (accountNumber, accountName) => api.post('/payments/bank/verify-account', { account_number: accountNumber, account_name: accountName }),
     submitPaymentProof: (proofData) => api.post('/payments/submit-proof', proofData),
     getPendingPayments: () => api.get('/payments/pending'),
+    getPaymentStatus: (paymentId) => api.get(`/payments/status/${paymentId}`),
     verifyPayment: (paymentId, status, notes) => api.post(`/payments/verify/${paymentId}`, { status, admin_notes: notes }),
     getEthiopianBanks: () => api.get('/payments/banks/ethiopian'),
     getAccountStatus: (accountNumber) => api.get(`/payments/bank/account/${accountNumber}/status`),
+    submitWalletPayment: (paymentData) => api.post('/payments/submit-via-wallet', paymentData),
+    getReceipt: (receiptId) => api.get(`/payments/receipt/${receiptId}`),
 };
 
 // ==================== SUPPORT ENDPOINTS ====================

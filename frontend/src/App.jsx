@@ -8,6 +8,7 @@ import { initAnalytics, trackPageView } from './utils/analytics';
 import { initLanguage } from './utils/translations';
 
 const Home = lazy(() => import('./pages/Home'));
+const PendingApproval = lazy(() => import('./pages/PendingApproval'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Groups = lazy(() => import('./pages/Groups'));
 const GroupDetail = lazy(() => import('./pages/GroupDetail'));
@@ -41,13 +42,33 @@ const PageLoader = () => (
 );
 
 const PrivateRoute = ({ children, roles = [], permissions = [] }) => {
-    const { isAuthenticated, loading, hasRole, hasPermission } = useAuth();
+    const { isAuthenticated, loading, user, hasRole, hasPermission } = useAuth();
     const location = useLocation();
 
     if (loading) return <PageLoader />;
     if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
     if (roles.length > 0 && !hasRole(roles)) return <Navigate to="/unauthorized" replace />;
     if (permissions.length > 0 && !hasPermission(permissions)) return <Navigate to="/unauthorized" replace />;
+
+    const isOnboardingPath = location.pathname === '/auth/onboarding';
+    const isPendingPath = location.pathname === '/pending';
+    const role = String(user?.role || '').toLowerCase();
+    const approvalStatus = String(user?.approval_status || '').toLowerCase();
+    const accountStatus = String(user?.status || '').toLowerCase();
+    const isSuperAdmin = role === 'super_admin';
+    const onboardingComplete = Boolean(user?.onboarding_complete);
+    const isApproved = approvalStatus === 'approved' && accountStatus === 'active';
+    const canAccessApp = isSuperAdmin || Boolean(user?.can_access_dashboard) || isApproved;
+
+    if (!canAccessApp) {
+        if (!onboardingComplete && isOnboardingPath) {
+            return children;
+        }
+        if (!isPendingPath) {
+            return <Navigate to="/pending" replace />;
+        }
+    }
+
     return children;
 };
 
@@ -125,6 +146,7 @@ const publicRoutes = [
 const privateRoutes = [
     { path: '/dashboard', element: <Dashboard /> },
     { path: '/groups', element: <Groups /> },
+    { path: '/pending', element: <PendingApproval /> },
     { path: '/groups/:id', element: <GroupDetail /> },
     { path: '/create-group', element: <CreateGroup /> },
     { path: '/groups/create', element: <Navigate to="/create-group" replace /> },
@@ -146,11 +168,6 @@ function App() {
     useEffect(() => {
         initLanguage();
         if (import.meta.env.PROD) initAnalytics();
-        if ('serviceWorker' in navigator && import.meta.env.PROD) {
-            const reg = () => navigator.serviceWorker.register('/service-worker.js').catch(console.error);
-            window.addEventListener('load', reg);
-            return () => window.removeEventListener('load', reg);
-        }
     }, []);
 
     return (
@@ -180,9 +197,7 @@ function App() {
                         path="/admin/*"
                         element={
                             <AdminRoute>
-                                <Layout>
-                                    <AdminPanel />
-                                </Layout>
+                                <AdminPanel />
                             </AdminRoute>
                         }
                     />

@@ -41,6 +41,33 @@ def enum_value(value: Any) -> Any:
 
 
 def user_doc_to_response(doc: Dict[str, Any]) -> Dict[str, Any]:
+    status = enum_value(doc.get("status", UserStatus.PENDING.value))
+    approval_status = str(doc.get("approval_status", "") or "").lower()
+    if str(status).lower() == "active" and approval_status in {"", "pending"}:
+        approval_status = "approved"
+    bank = doc.get("bank_account") or {}
+    registration_files = doc.get("registration_files") or {}
+    two_factor = doc.get("two_factor") or {}
+    profile_complete = bool(
+        str(doc.get("full_name") or "").strip()
+        and str(bank.get("account_number") or "").strip()
+        and str(bank.get("account_name") or "").strip()
+        and registration_files.get("property_file")
+        and registration_files.get("wealth_files")
+    )
+    onboarding_complete = bool(
+        profile_complete
+        and doc.get("email_verified")
+        and doc.get("phone_verified")
+        and len(doc.get("security_questions") or []) >= 3
+        and (doc.get("is_2fa_enabled") or two_factor.get("enabled"))
+    )
+    is_approved = (
+        str(doc.get("role", "")).lower() == "super_admin" or
+        (str(status).lower() == "active" and approval_status == "approved")
+    )
+    can_access_dashboard = str(doc.get("role", "")).lower() == "super_admin" or is_approved
+
     return {
         "id": doc["_id"],
         "email": doc["email"],
@@ -49,13 +76,18 @@ def user_doc_to_response(doc: Dict[str, Any]) -> Dict[str, Any]:
         "email_verified": bool(doc.get("email_verified", False)),
         "phone_verified": bool(doc.get("phone_verified", False)),
         "role": enum_value(doc.get("role", UserRole.USER.value)),
-        "status": enum_value(doc.get("status", UserStatus.PENDING.value)),
+        "status": status,
+        "approval_status": approval_status,
+        "is_approved": is_approved,
+        "onboarding_complete": onboarding_complete,
+        "can_access_dashboard": can_access_dashboard,
         "kyc_status": enum_value(doc.get("kyc_status", KYCStatus.NOT_SUBMITTED.value)),
         "credit_score": int(doc.get("credit_score", 0)),
         "wallet_address": doc.get("wallet_address"),
         "bank_account": doc.get("bank_account"),
         "profile_picture": doc.get("profile_picture"),
         "is_2fa_enabled": bool(doc.get("is_2fa_enabled", False)),
+        "address": doc.get("address", {}),
         "created_at": normalize_datetime(doc.get("created_at")) or utcnow(),
         "last_login": normalize_datetime(doc.get("last_login")),
     }
@@ -127,6 +159,17 @@ def current_round_number(group_doc: Dict[str, Any]) -> int:
     if not members:
         return 1
     return min(int(member.get("contribution_count") or 0) for member in members) + 1
+
+
+def current_round_total_collected(group_doc: Dict[str, Any], round_number: Optional[int] = None) -> float:
+    members = group_doc.get("members") or []
+    if round_number is None:
+        round_number = current_round_number(group_doc)
+    total = 0.0
+    for member in members:
+        round_contributions = member.get("round_contributions") or {}
+        total += float(round_contributions.get(str(round_number), 0.0))
+    return round(total, 2)
 
 
 def next_payment_due(frequency: str) -> datetime:
