@@ -10,9 +10,9 @@ import {
     CheckCircleIcon,
     ClockIcon,
     ClipboardDocumentIcon,
-    ArrowRightIcon,
-    WalletIcon,
-    ExclamationIcon
+     ArrowRightIcon,
+  WalletIcon,
+  ExclamationTriangleIcon  // ✅ Correct name in v2
 } from '@heroicons/react/24/outline';
 
 /**
