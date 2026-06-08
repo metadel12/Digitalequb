@@ -450,7 +450,42 @@ class AdminService:
                 "updated_at": utcnow(),
             }
         )
-#hhhhhh
+#########################################
+def get_pending_users(self, limit: int = 50, skip: int = 0) -> Dict[str, Any]:
+    """
+    Get users with pending approval status.
+    """
+    # Query users with status 'pending' (not approved yet)
+    query = {"status": "pending"}
+    
+    # Get total count for pagination
+    total = self.db["users"].count_documents(query)
+    
+    # Get pending users
+    pending_users = list(
+        self.db["users"]
+        .find(query)
+        .skip(skip)
+        .limit(limit)
+        .sort("created_at", -1)
+    )
+    
+    # Convert to response format
+    users = []
+    for user in pending_users:
+        user_data = user_doc_to_response(user)
+        # Add any additional fields needed for pending users
+        users.append(user_data)
+    
+    return {
+        "success": True,
+        "users": users,
+        "total": total,
+        "limit": limit,
+        "skip": skip
+    }
+#############################################
+
     def _insert_user_action_log(
         self,
         user_id: str,
