@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import secrets
 import smtplib
@@ -7,10 +9,22 @@ import string
 from datetime import timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 from pymongo.database import Database
+
+try:
+    from google.oauth2.credentials import Credentials as OAuth2Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+except ImportError:
+    OAuth2Credentials = None
+    Request = None
+    build = None
+    HttpError = None
 
 try:
     from sendgrid import SendGridAPIClient
@@ -57,10 +71,20 @@ class OTPService:
         return p
 
     def _email_configured(self) -> bool:
-        return bool(
-            self._has_real_value(settings.SENDGRID_API_KEY)
-            or (settings.SMTP_HOST and self._has_real_value(settings.SMTP_USER) and self._has_real_value(settings.SMTP_PASSWORD))
-        )
+        # Check Gmail API first (highest priority)
+        if OAuth2Credentials and build and all([
+            self._has_real_value(settings.GMAIL_CLIENT_ID),
+            self._has_real_value(settings.GMAIL_CLIENT_SECRET),
+            self._has_real_value(settings.GMAIL_REFRESH_TOKEN),
+        ]):
+            return True
+        # Check SendGrid
+        if self._has_real_value(settings.SENDGRID_API_KEY):
+            return True
+        # Check SMTP
+        if settings.SMTP_HOST and self._has_real_value(settings.SMTP_USER) and self._has_real_value(settings.SMTP_PASSWORD):
+            return True
+        return False
 
     def _sms_configured(self) -> bool:
         return bool(
@@ -69,6 +93,49 @@ class OTPService:
         )
 
     # ── email delivery ────────────────────────────────────────────────────────
+
+    async def _send_via_gmail_api(self, to: str, subject: str, body: str) -> bool:
+        """Send email using Gmail API with OAuth2."""
+        if not OAuth2Credentials or not build or not Request:
+            return False
+        if not all([
+            self._has_real_value(settings.GMAIL_CLIENT_ID),
+            self._has_real_value(settings.GMAIL_CLIENT_SECRET),
+            self._has_real_value(settings.GMAIL_REFRESH_TOKEN),
+        ]):
+            return False
+        
+        try:
+            # Create OAuth2 credentials
+            credentials = OAuth2Credentials(
+                token=None,
+                refresh_token=settings.GMAIL_REFRESH_TOKEN,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=settings.GMAIL_CLIENT_ID,
+                client_secret=settings.GMAIL_CLIENT_SECRET,
+                scopes=['https://www.googleapis.com/auth/gmail.send']
+            )
+            # Refresh to get valid access token
+            credentials.refresh(Request())
+            service = build('gmail', 'v1', credentials=credentials)
+            
+            # Create message
+            from_email = settings.GMAIL_SENDER_EMAIL or settings.FROM_EMAIL
+            msg = MIMEMultipart()
+            msg['From'] = from_email
+            msg['To'] = to
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'html'))
+            
+            # Encode and send
+            raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode('utf-8')
+            message = {'raw': raw_message}
+            service.users().messages().send(userId='me', body=message).execute()
+            logger.info("Email sent to %s via Gmail API", to)
+            return True
+        except Exception as e:
+            logger.exception("Gmail API failed for %s: %s", to, str(e))
+            return False
 
     async def _send_via_sendgrid(self, to: str, subject: str, body: str) -> bool:
         if not self._has_real_value(settings.SENDGRID_API_KEY) or not SendGridAPIClient or not Mail:
@@ -138,6 +205,8 @@ class OTPService:
         if not self._email_configured():
             print(f"\nEMAIL OTP for {email}: {otp}")
             logger.warning("Email dev fallback for %s: %s", email, otp)
+            return True
+        if await self._send_via_gmail_api(email, subject, body):
             return True
         if await self._send_via_sendgrid(email, subject, body):
             return True

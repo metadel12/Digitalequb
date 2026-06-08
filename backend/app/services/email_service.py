@@ -1,41 +1,89 @@
-import smtplib
+import base64
+import json
+from pathlib import Path
+from google.oauth2.service_account import Credentials as SACredentials
+from google.oauth2.credentials import Credentials as OAuth2Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.core.config import settings
 
 class EmailService:
     def __init__(self):
-        self.smtp_host = getattr(settings, "SMTP_HOST", None)
-        self.smtp_port = getattr(settings, "SMTP_PORT", 587)
-        self.smtp_user = getattr(settings, "SMTP_USER", None)
-        self.smtp_password = getattr(settings, "SMTP_PASSWORD", None)
-        self.email_from = getattr(settings, "EMAIL_FROM", None) or getattr(settings, "FROM_EMAIL", "noreply@digiequb.com")
+        self.email_from = settings.GMAIL_SENDER_EMAIL or getattr(settings, "FROM_EMAIL", "noreply@digiequb.com")
+        self.gmail_service = None
+        self._init_gmail_service()
+
+    def _init_gmail_service(self):
+        """Initialize Gmail API service using OAuth2 or Service Account credentials."""
+        try:
+            # Try OAuth2 credentials first
+            if settings.GMAIL_CLIENT_ID and settings.GMAIL_CLIENT_SECRET and settings.GMAIL_REFRESH_TOKEN:
+                credentials = OAuth2Credentials(
+                    token=None,  # Will be fetched using refresh token
+                    refresh_token=settings.GMAIL_REFRESH_TOKEN,
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=settings.GMAIL_CLIENT_ID,
+                    client_secret=settings.GMAIL_CLIENT_SECRET,
+                    scopes=['https://www.googleapis.com/auth/gmail.send']
+                )
+                # Refresh the token to get a valid access token
+                credentials.refresh(Request())
+                self.gmail_service = build('gmail', 'v1', credentials=credentials)
+                return
+            
+            # Fallback to Service Account if OAuth2 not configured
+            if settings.GMAIL_SERVICE_ACCOUNT_JSON:
+                service_account_info = None
+                try:
+                    service_account_info = json.loads(settings.GMAIL_SERVICE_ACCOUNT_JSON)
+                except (json.JSONDecodeError, ValueError):
+                    # If not JSON string, try as file path
+                    sa_path = Path(settings.GMAIL_SERVICE_ACCOUNT_JSON)
+                    if sa_path.exists():
+                        with open(sa_path) as f:
+                            service_account_info = json.load(f)
+                
+                if service_account_info:
+                    credentials = SACredentials.from_service_account_info(
+                        service_account_info,
+                        scopes=['https://www.googleapis.com/auth/gmail.send']
+                    )
+                    self.gmail_service = build('gmail', 'v1', credentials=credentials)
+        except Exception as e:
+            print(f"Error initializing Gmail service: {str(e)}")
+            self.gmail_service = None
 
     async def send_email(self, to_email: str, subject: str, body: str):
+        """Send email using Gmail REST API."""
         try:
+            if not self.gmail_service:
+                return {
+                    "status": "failed",
+                    "message": "Gmail API service not configured. Set GMAIL_SERVICE_ACCOUNT_JSON and GMAIL_SENDER_EMAIL.",
+                }
+
+            # Create message
             msg = MIMEMultipart()
             msg['From'] = self.email_from
             msg['To'] = to_email
             msg['Subject'] = subject
-
             msg.attach(MIMEText(body, 'html'))
-
-            if not self.smtp_host or not self.smtp_user or not self.smtp_password:
-                return {
-                    "status": "failed",
-                    "message": "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASSWORD to enable email delivery.",
-                }
-
-            server = smtplib.SMTP(self.smtp_host, self.smtp_port)
-            server.starttls()
-            server.login(self.smtp_user, self.smtp_password)
-            text = msg.as_string()
-            server.sendmail(self.email_from, to_email, text)
-            server.quit()
-
+            
+            # Encode message to bytes and base64
+            raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode('utf-8')
+            message = {'raw': raw_message}
+            
+            # Send message
+            self.gmail_service.users().messages().send(userId='me', body=message).execute()
             return {"status": "sent", "message": "Email sent successfully"}
+        except HttpError as e:
+            error_msg = f"Gmail API error: {str(e)}"
+            return {"status": "failed", "message": error_msg}
         except Exception as e:
-            return {"status": "failed", "message": str(e)}
+            return {"status": "failed", "message": f"Error sending email: {str(e)}"}
 
     async def send_otp_email(self, to_email: str, otp: str):
         subject = "Your DigiEqub OTP"

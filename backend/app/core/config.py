@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     OTP_LENGTH: int = 6
     
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: Optional[str] = None  # PostgreSQL URL (optional, uses MongoDB if not set)
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
     MONGODB_URI: str = "mongodb://127.0.0.1:27017"
@@ -41,9 +41,9 @@ class Settings(BaseSettings):
     MONGODB_USERS_COLLECTION: str = "users"
     
     # Blockchain
-    WEB3_PROVIDER_URL: str
+    WEB3_PROVIDER_URL: Optional[str] = "https://sepolia.infura.io/v3/YOUR_INFURA_KEY"
     CONTRACT_ADDRESS: Optional[str] = None
-    ADMIN_WALLET_PRIVATE_KEY: str
+    ADMIN_WALLET_PRIVATE_KEY: Optional[str] = None  # 0x prefixed hex string
     BLOCKCHAIN_NETWORK: str = "sepolia"
     
     # CORS
@@ -58,15 +58,22 @@ class Settings(BaseSettings):
     ]
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
     
-    # Email
+    # Email - Gmail API Configuration (OAuth2)
+    GMAIL_CLIENT_ID: Optional[str] = None
+    GMAIL_CLIENT_SECRET: Optional[str] = None
+    GMAIL_REFRESH_TOKEN: Optional[str] = None
+    # Fallback: Service Account (Optional)
+    GMAIL_SERVICE_ACCOUNT_JSON: Optional[str] = None  # Path or JSON string of service account
+    GMAIL_SENDER_EMAIL: str = ""  # Gmail address to send from
+    FROM_EMAIL: str = "noreply@digiequb.com"
+    FROM_NAME: str = "DigiEqub"
+    # Deprecated SMTP settings (kept for backward compatibility)
     SENDGRID_API_KEY: str = ""
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_TIMEOUT: int = 10
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    FROM_EMAIL: str
-    FROM_NAME: str = "DigiEqub"
     
     # SMS
     TWILIO_ACCOUNT_SID: str = ""
@@ -79,18 +86,18 @@ class Settings(BaseSettings):
     TEST_SMS_TO: Optional[str] = None
     
     # Redis
-    REDIS_URL: str
-    CELERY_BROKER_URL: str
-    CELERY_RESULT_BACKEND: str
+    REDIS_URL: str = "redis://localhost:6379/0"
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
     
     # AWS
-    AWS_ACCESS_KEY_ID: str
-    AWS_SECRET_ACCESS_KEY: str
-    AWS_STORAGE_BUCKET_NAME: str
-    AWS_REGION: str
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+    AWS_STORAGE_BUCKET_NAME: Optional[str] = None
+    AWS_REGION: str = "us-east-1"
     
     # Frontend
-    FRONTEND_URL: str
+    FRONTEND_URL: str = "http://localhost:5173"
 
     # OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None

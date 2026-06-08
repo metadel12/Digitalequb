@@ -65,7 +65,7 @@ docker compose up --build
 This starts:
 
 - Frontend on `http://localhost:5173`
-- Backend on `http://localhost:8000`
+- Backend on `http://localhost:8001`
 - Redis on `localhost:6379`
 
 ## API Docs
@@ -92,3 +92,12 @@ The repository is not yet a fully completed production deployment of every item 
 2. Connect remaining frontend screens from mock/demo data to live backend endpoints.
 3. Add CI, environment validation, and end-to-end tests.
 4. Finish deployment hardening for Redis/Celery, file storage, and blockchain services.
+
+# devloped by
+
+Metadel Abere
+https://github.com/metadel12
+
+# Find out about me
+
+https://metadel-abere-ma.onrender.com
