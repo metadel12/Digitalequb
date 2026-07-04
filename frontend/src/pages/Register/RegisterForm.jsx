@@ -53,8 +53,8 @@ const initialValues = {
     city: '',
     cbeAccountNumber: '',
     cbeAccountName: '',
-    propertyFile: null,
-    wealthFiles: [],
+    propertyDocument: null,
+    wealthDocument: null,
     password: '',
     confirmPassword: '',
     securityQuestion: 'first_teacher',
@@ -112,8 +112,8 @@ const buildErrors = (values, step) => {
         );
         if (cbeNameResult !== true) errors.cbeAccountName = cbeNameResult;
 
-        if (!values.propertyFile) errors.propertyFile = 'House map or property file is required';
-        if (!values.wealthFiles?.length) errors.wealthFiles = 'Upload at least one wealth document';
+        if (!values.propertyDocument) errors.propertyDocument = 'House map or property file is required';
+        if (!values.wealthDocument) errors.wealthDocument = 'Wealth document is required';
     }
 
     if (step === 2) {
@@ -219,12 +219,12 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
         }
     };
 
-    const handlePropertyFileChange = (event) => {
-        form.setFieldValue('propertyFile', event.target.files?.[0] || null);
+    const handlePropertyDocumentChange = (event) => {
+        form.setFieldValue('propertyDocument', event.target.files?.[0] || null);
     };
 
-    const handleWealthFilesChange = (event) => {
-        form.setFieldValue('wealthFiles', Array.from(event.target.files || []));
+    const handleWealthDocumentChange = (event) => {
+        form.setFieldValue('wealthDocument', event.target.files?.[0] || null);
     };
 
     const handleNext = async () => {
@@ -277,13 +277,10 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
             payload.append('phone_number', normalizePhoneNumber(form.values.countryCode, form.values.phoneNumber));
             payload.append('password', form.values.password);
             payload.append('confirm_password', form.values.confirmPassword);
-            payload.append('bank_name', 'Commercial Bank of Ethiopia');
-            payload.append('bank_account_number', form.values.cbeAccountNumber.trim());
-            payload.append('bank_account_name', form.values.cbeAccountName.trim());
-            payload.append('property_file', form.values.propertyFile);
-            form.values.wealthFiles.forEach((file) => payload.append('wealth_files', file));
+            payload.append('property_document', form.values.propertyDocument);
+            payload.append('wealth_document', form.values.wealthDocument);
 
-            const result = await auth.register(payload);
+            const result = await auth.registerWithDocuments(payload);
 
             if (!result?.success) {
                 form.setErrors({ submit: result?.error || 'Registration failed. Please try again.' });
@@ -440,29 +437,28 @@ function RegisterForm({ onBackToLogin, onSuccess }) {
                                 hidden
                                 type="file"
                                 accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
-                                onChange={handlePropertyFileChange}
+                                onChange={handlePropertyDocumentChange}
                             />
                         </Button>
-                        <Typography variant="caption" color={form.errors.propertyFile ? 'error' : 'text.secondary'}>
-                            {form.values.propertyFile?.name || form.errors.propertyFile || 'PDF, image, DOC, or DOCX up to 10MB'}
+                        <Typography variant="caption" color={form.errors.propertyDocument ? 'error' : 'text.secondary'}>
+                            {form.values.propertyDocument?.name || form.errors.propertyDocument || 'PDF, image, DOC, or DOCX up to 2MB'}
                         </Typography>
                     </Stack>
 
                     <Stack spacing={1}>
                         <Button variant="outlined" component="label">
-                            Upload wealth documents
+                            Upload wealth document
                             <input
                                 hidden
-                                multiple
                                 type="file"
                                 accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
-                                onChange={handleWealthFilesChange}
+                                onChange={handleWealthDocumentChange}
                             />
                         </Button>
-                        <Typography variant="caption" color={form.errors.wealthFiles ? 'error' : 'text.secondary'}>
-                            {form.values.wealthFiles.length
-                                ? form.values.wealthFiles.map((file) => file.name).join(', ')
-                                : form.errors.wealthFiles || 'Upload bank, asset, income, or other wealth proof files'}
+                        <Typography variant="caption" color={form.errors.wealthDocument ? 'error' : 'text.secondary'}>
+                            {form.values.wealthDocument?.name
+                                ? form.values.wealthDocument.name
+                                : form.errors.wealthDocument || 'Upload bank statement, asset, or income proof (PDF or image)'}
                         </Typography>
                     </Stack>
                 </Stack>

@@ -411,10 +411,9 @@ const LoginForm = () => {
     // Social login handlers
     const handleSocialLogin = (provider) => {
         showSnackbar(`Connecting with ${provider}...`, 'info');
-        // Implement OAuth flow here
-        setTimeout(() => {
-            window.location.href = `/auth/${provider.toLowerCase()}`;
-        }, 1000);
+        // Redirect to backend OAuth endpoint which will handle the redirect to Google/Apple
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1';
+        window.location.href = `${apiBase}/auth/${provider.toLowerCase()}/url`;
     };
 
     // Show snackbar

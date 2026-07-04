@@ -203,18 +203,22 @@ class OTPService:
         </body></html>
         """
         if not self._email_configured():
-            print(f"\nEMAIL OTP for {email}: {otp}")
-            logger.warning("Email dev fallback for %s: %s", email, otp)
-            return True
+            if settings.DEBUG:
+                print(f"\nEMAIL OTP for {email}: {otp}")
+                logger.warning("Email dev fallback for %s: %s", email, otp)
+                return True
+            logger.error("No email provider configured for %s", email)
+            return False
+
         if await self._send_via_gmail_api(email, subject, body):
             return True
         if await self._send_via_sendgrid(email, subject, body):
             return True
         if await self._send_via_smtp(email, subject, body):
             return True
-        print(f"\nEMAIL OTP for {email}: {otp}")
-        logger.warning("Email fallback for %s: %s", email, otp)
-        return bool(settings.DEBUG)
+
+        logger.error("Email delivery failed for %s: all configured providers failed", email)
+        return False
 
     # ── SMS delivery ──────────────────────────────────────────────────────────
 

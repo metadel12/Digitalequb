@@ -11,14 +11,16 @@ from urllib.parse import urlencode
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
 from pymongo.database import Database
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 logger = logging.getLogger(__name__)
 
 from ...core.config import settings
 from ...core.database import get_db
+from ...database import get_database
 from ...core.mongo_utils import ensure_utc_datetime, new_id, utcnow
 from ...core.security import create_access_token, create_refresh_token, oauth2_scheme, verify_token
 from ...dependencies import get_current_user
@@ -47,6 +49,7 @@ from ...services.cbe_service import CommercialBankOfEthiopiaService
 from ...services.otp_service import OTPService
 from ...services.social_auth_service import SocialAuthService
 from ...services.admin_service import AdminService
+from ...services.document_service import DocumentService
 from ...utils.validators import validate_registration_email
 
 router = APIRouter()
@@ -335,6 +338,94 @@ async def register(request: Request, background_tasks: BackgroundTasks, db: Data
         raise
     background_tasks.add_task(_send_registration_notifications, db, user["_id"], user["email"])
     return user_to_response(user)
+
+
+@router.post("/register-with-documents", response_model=dict)
+async def register_with_documents(
+    email: str = Form(...),
+    phone_number: str = Form(...),
+    full_name: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    property_document: UploadFile = File(...),
+    wealth_document: UploadFile = File(...),
+    db: Database = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_database)
+) -> dict:
+    """
+    Register a user with documents (property document and wealth document).
+    Both documents are required. Max file size: 2MB each.
+    - property_document: House map or property proof
+    - wealth_document: Bank statement, asset proof, or income evidence
+    """
+    try:
+        # Validate email
+        email_ok, email_error = validate_registration_email(email)
+        if not email_ok:
+            raise HTTPException(status_code=400, detail=email_error)
+
+        # Create user data
+        user_data = UserCreate(
+            email=email,
+            phone_number=phone_number,
+            full_name=full_name,
+            password=password,
+            confirm_password=confirm_password
+        )
+
+        # Register user using AuthService
+        auth_service = AuthService(db)
+        
+        # Check if email/phone already registered
+        if auth_service.get_user_by_email(email):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        if auth_service.get_user_by_phone(phone_number):
+            raise HTTPException(status_code=400, detail="Phone number already registered")
+        
+        # Create the user
+        registered_user = auth_service.create_user(user_data)
+        user_id = registered_user["_id"]
+
+        # Upload documents
+        document_service = DocumentService(mongo_db)
+        
+        property_doc_result = await document_service.upload_document(
+            user_id=str(user_id),
+            document_type="property_document",
+            file=property_document
+        )
+
+        wealth_doc_result = await document_service.upload_document(
+            user_id=str(user_id),
+            document_type="wealth_document",
+            file=wealth_document
+        )
+
+        # Send verification email
+        try:
+            from ...services.otp_service import OTPService
+            otp_service = OTPService(db)
+            await otp_service.send_email_verification(str(user_id), email)
+        except Exception as e:
+            logger.warning(f"Failed to send verification email for user {user_id}: {e}")
+
+        return {
+            "user": user_to_response(registered_user),
+            "documents": {
+                "property_document": property_doc_result,
+                "wealth_document": wealth_doc_result
+            },
+            "message": "User registered successfully with documents"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Registration with documents error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Registration failed: {str(e)}"
+        )
 
 
 @router.post("/login", response_model=LoginResponse)

@@ -339,7 +339,124 @@ class AdminService:
         result.sort(key=lambda x: x.get("submitted_at") or utcnow(), reverse=True)
         return result
 
+    def get_pending_users(self, limit: int = 50, skip: int = 0) -> Dict[str, Any]:
+        query = {
+            "$or": [
+                {"status": "pending"},
+                {"approval_status": "pending"},
+            ]
+        }
+        total = self.db["users"].count_documents(query)
+        users = [
+            user_doc_to_response(user)
+            for user in self.db["users"].find(query).sort("created_at", -1).skip(skip).limit(limit)
+        ]
+        return {"success": True, "users": users, "total": total}
+
+    def get_all_users(self, limit: int = 50, skip: int = 0, status: Optional[str] = None) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if status:
+            lower_status = str(status).lower()
+            if lower_status == "rejected":
+                query = {"approval_status": "rejected"}
+            elif lower_status == "approved":
+                query = {"approval_status": "approved", "status": "active"}
+            else:
+                query = {"status": lower_status}
+
+        total = self.db["users"].count_documents(query)
+        users = [
+            user_doc_to_response(user)
+            for user in self.db["users"].find(query).sort("created_at", -1).skip(skip).limit(limit)
+        ]
+        return {"success": True, "users": users, "total": total}
+
+    def get_user_action_logs(self) -> Dict[str, Any]:
+        logs = list(self.db["user_approval_logs"].find().sort("created_at", -1))
+        return {"success": True, "logs": logs, "total": len(logs)}
+
+    def approve_user(self, admin_id: str, user_id: str, reason: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+        user = self.db["users"].find_one({"_id": str(user_id)})
+        if not user:
+            return {"success": False, "error": "User not found"}
+        if user.get("approval_status") == "approved" and not force:
+            return {"success": False, "error": "User is already approved"}
+
+        now = utcnow()
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {
+                "$set": {
+                    "approval_status": "approved",
+                    "status": "active",
+                    "approved_at": now,
+                    "updated_at": now,
+                }
+            },
+        )
+        self._insert_user_action_log(user_id, user.get("full_name"), "approved", admin_id, reason)
+        return {"success": True, "message": "User approved successfully"}
+
+    def reject_user(self, admin_id: str, user_id: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        user = self.db["users"].find_one({"_id": str(user_id)})
+        if not user:
+            return {"success": False, "error": "User not found"}
+
+        now = utcnow()
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {
+                "$set": {
+                    "approval_status": "rejected",
+                    "status": "rejected",
+                    "rejection_reason": reason,
+                    "updated_at": now,
+                }
+            },
+        )
+        self._insert_user_action_log(user_id, user.get("full_name"), "rejected", admin_id, reason)
+        return {"success": True, "message": "User rejected successfully"}
+
+    def block_user(self, admin_id: str, user_id: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        user = self.db["users"].find_one({"_id": str(user_id)})
+        if not user:
+            return {"success": False, "error": "User not found"}
+
+        now = utcnow()
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {"$set": {"status": "blocked", "updated_at": now}}
+        )
+        self._insert_user_action_log(user_id, user.get("full_name"), "blocked", admin_id, reason)
+        return {"success": True, "message": "User blocked successfully"}
+
+    def unblock_user(self, admin_id: str, user_id: str) -> Dict[str, Any]:
+        user = self.db["users"].find_one({"_id": str(user_id)})
+        if not user:
+            return {"success": False, "error": "User not found"}
+        now = utcnow()
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {"$set": {"status": "active", "updated_at": now}}
+        )
+        self._insert_user_action_log(user_id, user.get("full_name"), "unblocked", admin_id, None)
+        return {"success": True, "message": "User unblocked successfully"}
+
+    def delete_user(self, admin_id: str, user_id: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        user = self.db["users"].find_one({"_id": str(user_id)})
+        if not user:
+            return {"success": False, "error": "User not found"}
+
+        now = utcnow()
+        self.db["users"].update_one(
+            {"_id": str(user_id)},
+            {"$set": {"status": "deleted", "deleted_at": now, "updated_at": now}}
+        )
+        self._insert_user_action_log(user_id, user.get("full_name"), "deleted", admin_id, reason)
+        return {"success": True, "message": "User deleted successfully"}
+
     def verify_payment(self, payment_id: str, admin_id: str) -> Dict[str, Any]:
+
         # Try to find payment in bank transfers first
         payment = self.db["payment_verifications"].find_one({"_id": payment_id})
         payment_source = "bank"

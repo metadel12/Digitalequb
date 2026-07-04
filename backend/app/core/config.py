@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic_settings import BaseSettings
-from pydantic import AnyHttpUrl, validator
+from pydantic import AnyHttpUrl, validator, root_validator
 import secrets
 import json
 
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     DATABASE_URL: Optional[str] = None  # PostgreSQL URL (optional, uses MongoDB if not set)
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
-    MONGODB_URI: str = "mongodb://127.0.0.1:27017"
+    MONGODB_URI: str = "mongodb+srv://metadel:abebe1beso-bela@kaloss-coffee.hrr2n6e.mongodb.net/digiequb?retryWrites=true&w=majority"
     MONGODB_DB_NAME: str = "digiequb"
     MONGODB_USERS_COLLECTION: str = "users"
     
@@ -65,8 +65,15 @@ class Settings(BaseSettings):
     # Fallback: Service Account (Optional)
     GMAIL_SERVICE_ACCOUNT_JSON: Optional[str] = None  # Path or JSON string of service account
     GMAIL_SENDER_EMAIL: str = ""  # Gmail address to send from
+    EMAIL_FROM: Optional[str] = None
     FROM_EMAIL: str = "noreply@digiequb.com"
     FROM_NAME: str = "DigiEqub"
+
+    @root_validator(pre=True)
+    def alias_email_from(cls, values):
+        if not values.get("FROM_EMAIL") and values.get("EMAIL_FROM"):
+            values["FROM_EMAIL"] = values["EMAIL_FROM"]
+        return values
     # Deprecated SMTP settings (kept for backward compatibility)
     SENDGRID_API_KEY: str = ""
     SMTP_HOST: Optional[str] = None
@@ -98,6 +105,12 @@ class Settings(BaseSettings):
     
     # Frontend
     FRONTEND_URL: str = "http://localhost:5173"
+
+    # Supabase
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_KEY: Optional[str] = None
+    SUPABASE_DOCUMENTS_BUCKET: str = "digiequb"
+    MAX_FILE_SIZE_MB: int = 2  # 2MB limit for document uploads
 
     # OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None

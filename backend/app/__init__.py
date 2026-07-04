@@ -98,7 +98,7 @@ def create_application() -> FastAPI:
     )
 
     from .api.v1 import admin, auth, dashboard, groups, notifications, payments, settings as settings_router, transactions, users
-    from .routers import profile, wallet
+    from .routers import profile, wallet, documents
 
     app.include_router(platform_router)
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
@@ -112,6 +112,7 @@ def create_application() -> FastAPI:
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
     app.include_router(payments.router, prefix="/api/v1/payments", tags=["Payments"])
     app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
+    app.include_router(documents.router, tags=["Documents"])
 
     return app
 

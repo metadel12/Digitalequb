@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
+from pydantic import root_validator
 
 class Settings(BaseSettings):
     # Application
@@ -28,6 +29,13 @@ class Settings(BaseSettings):
     SMTP_USER: str
     SMTP_PASSWORD: str
     EMAIL_FROM: str
+    FROM_EMAIL: Optional[str] = None
+
+    @root_validator(pre=True)
+    def alias_from_email(cls, values):
+        if not values.get("EMAIL_FROM") and values.get("FROM_EMAIL"):
+            values["EMAIL_FROM"] = values["FROM_EMAIL"]
+        return values
 
     # SMS (Twilio)
     TWILIO_ACCOUNT_SID: str
@@ -47,5 +55,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 settings = Settings()

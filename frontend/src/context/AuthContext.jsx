@@ -294,6 +294,25 @@ export function AuthProvider({ children }) {
         }
     };
 
+    const registerWithDocuments = async (formData) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const online = await ensureBackendOnline();
+            if (!online) return { error: 'Cannot connect to server on port 8001. Start the backend and try again.' };
+            const response = await api.post('/auth/register-with-documents', formData);
+            showSnackbar('Registration successful! Check your email for the verification code.', 'success');
+            return { success: true, data: response.data };
+        } catch (err) {
+            const errorMessage = getApiErrorMessage(err, 'Registration failed. Please try again.');
+            setError(errorMessage);
+            showSnackbar(errorMessage, 'error');
+            return { error: errorMessage };
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // Stable reference — never changes between renders
     const startSocialLogin = useCallback((provider) => {
         const base = (import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1').replace(/\/api\/v1\/?$/, '');
@@ -469,6 +488,7 @@ export function AuthProvider({ children }) {
         login,
         verify2FA,
         register,
+        registerWithDocuments,
         startSocialLogin,
         completeSocialLogin,
         startTwoFactorChallenge,
