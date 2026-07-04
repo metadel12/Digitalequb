@@ -12,7 +12,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-COPY .env .env
+
+# REMOVE THIS LINE: COPY .env .env
 
 EXPOSE 8001
 
