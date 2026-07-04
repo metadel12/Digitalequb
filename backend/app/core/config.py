@@ -76,16 +76,16 @@ class Settings(BaseSettings):
     
     # Email - SMTP (Optional - kept for backward compatibility)
     SENDGRID_API_KEY: Optional[str] = None
-    SMTP_HOST: Optional[str] = None
+    SMTP_HOST: Optional[str] = None  # ← FIXED: has = None
     SMTP_PORT: int = 587
     SMTP_TIMEOUT: int = 10
-    SMTP_USER: Optional[str] = None
-    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USER: Optional[str] = None  # ← FIXED: has = None
+    SMTP_PASSWORD: Optional[str] = None  # ← FIXED: has = None
     
     # SMS
-    TWILIO_ACCOUNT_SID: Optional[str] = None
-    TWILIO_AUTH_TOKEN: Optional[str] = None
-    TWILIO_PHONE_NUMBER: Optional[str] = None
+    TWILIO_ACCOUNT_SID: Optional[str] = None  # ← FIXED: has = None
+    TWILIO_AUTH_TOKEN: Optional[str] = None  # ← FIXED: has = None
+    TWILIO_PHONE_NUMBER: Optional[str] = None  # ← FIXED: has = None
     AFRICASTALKING_USERNAME: Optional[str] = "sandbox"
     AFRICASTALKING_API_KEY: Optional[str] = None
     AFRICASTALKING_SENDER: str = "DigiEqub"
