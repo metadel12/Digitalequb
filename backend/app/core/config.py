@@ -58,12 +58,12 @@ class Settings(BaseSettings):
     ]
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
     
-    # Email - Gmail API Configuration (OAuth2) - ALL OPTIONAL
+    # Email - Gmail API Configuration (OAuth2)
     GMAIL_CLIENT_ID: Optional[str] = None
     GMAIL_CLIENT_SECRET: Optional[str] = None
     GMAIL_REFRESH_TOKEN: Optional[str] = None
     GMAIL_SERVICE_ACCOUNT_JSON: Optional[str] = None
-    GMAIL_SENDER_EMAIL: Optional[str] = None  # ← Changed to Optional
+    GMAIL_SENDER_EMAIL: Optional[str] = None
     EMAIL_FROM: Optional[str] = None
     FROM_EMAIL: str = "noreply@digiequb.com"
     FROM_NAME: str = "DigiEqub"
@@ -74,19 +74,19 @@ class Settings(BaseSettings):
             values["FROM_EMAIL"] = values["EMAIL_FROM"]
         return values
     
-    # Deprecated SMTP settings - ALL OPTIONAL
-    SENDGRID_API_KEY: Optional[str] = None  # ← Changed to Optional
+    # Email - SMTP (Optional - kept for backward compatibility)
+    SENDGRID_API_KEY: Optional[str] = None
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_TIMEOUT: int = 10
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     
-    # SMS - ALL OPTIONAL
-    TWILIO_ACCOUNT_SID: Optional[str] = None  # ← Changed to Optional
-    TWILIO_AUTH_TOKEN: Optional[str] = None  # ← Changed to Optional
-    TWILIO_PHONE_NUMBER: Optional[str] = None  # ← Changed to Optional
-    AFRICASTALKING_USERNAME: Optional[str] = "sandbox"  # ← Changed to Optional
+    # SMS
+    TWILIO_ACCOUNT_SID: Optional[str] = None
+    TWILIO_AUTH_TOKEN: Optional[str] = None
+    TWILIO_PHONE_NUMBER: Optional[str] = None
+    AFRICASTALKING_USERNAME: Optional[str] = "sandbox"
     AFRICASTALKING_API_KEY: Optional[str] = None
     AFRICASTALKING_SENDER: str = "DigiEqub"
     AFRICASTALKING_BASE_URL: Optional[str] = None
@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
     SUPABASE_DOCUMENTS_BUCKET: str = "digiequb"
-    MAX_FILE_SIZE_MB: int = 25  # ← Updated to match your .env (25MB)
+    MAX_FILE_SIZE_MB: int = 25
     
     # OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
