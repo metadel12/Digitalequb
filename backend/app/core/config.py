@@ -33,17 +33,17 @@ class Settings(BaseSettings):
     OTP_LENGTH: int = 6
     
     # Database
-    DATABASE_URL: Optional[str] = None  # PostgreSQL URL (optional, uses MongoDB if not set)
+    DATABASE_URL: Optional[str] = None
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
-    MONGODB_URI: str = "mongodb+srv://metadel:abebe1beso-bela@kaloss-coffee.hrr2n6e.mongodb.net/digiequb?retryWrites=true&w=majority"
+    MONGODB_URI: Optional[str] = "mongodb+srv://metadel:abebe1beso-bela@kaloss-coffee.hrr2n6e.mongodb.net/digiequb?retryWrites=true&w=majority"
     MONGODB_DB_NAME: str = "digiequb"
     MONGODB_USERS_COLLECTION: str = "users"
     
     # Blockchain
     WEB3_PROVIDER_URL: Optional[str] = "https://sepolia.infura.io/v3/YOUR_INFURA_KEY"
     CONTRACT_ADDRESS: Optional[str] = None
-    ADMIN_WALLET_PRIVATE_KEY: Optional[str] = None  # 0x prefixed hex string
+    ADMIN_WALLET_PRIVATE_KEY: Optional[str] = None
     BLOCKCHAIN_NETWORK: str = "sepolia"
     
     # CORS
@@ -58,13 +58,12 @@ class Settings(BaseSettings):
     ]
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
     
-    # Email - Gmail API Configuration (OAuth2)
+    # Email - Gmail API Configuration (OAuth2) - ALL OPTIONAL
     GMAIL_CLIENT_ID: Optional[str] = None
     GMAIL_CLIENT_SECRET: Optional[str] = None
     GMAIL_REFRESH_TOKEN: Optional[str] = None
-    # Fallback: Service Account (Optional)
-    GMAIL_SERVICE_ACCOUNT_JSON: Optional[str] = None  # Path or JSON string of service account
-    GMAIL_SENDER_EMAIL: str = ""  # Gmail address to send from
+    GMAIL_SERVICE_ACCOUNT_JSON: Optional[str] = None
+    GMAIL_SENDER_EMAIL: Optional[str] = None  # ← Changed to Optional
     EMAIL_FROM: Optional[str] = None
     FROM_EMAIL: str = "noreply@digiequb.com"
     FROM_NAME: str = "DigiEqub"
@@ -74,19 +73,20 @@ class Settings(BaseSettings):
         if not values.get("FROM_EMAIL") and values.get("EMAIL_FROM"):
             values["FROM_EMAIL"] = values["EMAIL_FROM"]
         return values
-    # Deprecated SMTP settings (kept for backward compatibility)
-    SENDGRID_API_KEY: str = ""
+    
+    # Deprecated SMTP settings - ALL OPTIONAL
+    SENDGRID_API_KEY: Optional[str] = None  # ← Changed to Optional
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_TIMEOUT: int = 10
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     
-    # SMS
-    TWILIO_ACCOUNT_SID: str = ""
-    TWILIO_AUTH_TOKEN: str = ""
-    TWILIO_PHONE_NUMBER: str = ""
-    AFRICASTALKING_USERNAME: str = "sandbox"
+    # SMS - ALL OPTIONAL
+    TWILIO_ACCOUNT_SID: Optional[str] = None  # ← Changed to Optional
+    TWILIO_AUTH_TOKEN: Optional[str] = None  # ← Changed to Optional
+    TWILIO_PHONE_NUMBER: Optional[str] = None  # ← Changed to Optional
+    AFRICASTALKING_USERNAME: Optional[str] = "sandbox"  # ← Changed to Optional
     AFRICASTALKING_API_KEY: Optional[str] = None
     AFRICASTALKING_SENDER: str = "DigiEqub"
     AFRICASTALKING_BASE_URL: Optional[str] = None
@@ -110,8 +110,8 @@ class Settings(BaseSettings):
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
     SUPABASE_DOCUMENTS_BUCKET: str = "digiequb"
-    MAX_FILE_SIZE_MB: int = 2  # 2MB limit for document uploads
-
+    MAX_FILE_SIZE_MB: int = 25  # ← Updated to match your .env (25MB)
+    
     # OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
