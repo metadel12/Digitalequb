@@ -1,10 +1,10 @@
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, PlainTextResponse  # ✅ PlainTextResponse ን ያክሉ
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="DigiEqub API", version="1.0.0")
 
-# CORS ማዋቀር
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,15 +13,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ================================================
-# 🆕 የGoogle ማረጋገጫ ፋይል መስመር (GOOGLE VERIFICATION)
+# GOOGLE VERIFICATION FILE
 # ================================================
 @app.get("/google466a7f19e0c88aa9.html", response_class=PlainTextResponse)
 async def google_verification():
-    # ⚠️ ይህ በትክክል ይህ መሆን አለበት - ከGoogle ያወረዱትን ፋይል ይዘት ይቅዱ
     return "google-site-verification: google466a7f19e0c88aa9.html"
 
-# ============ የቤት ገጽ (Homepage) ============
+
+# ================================================
+# SITEMAP.XML FOR GOOGLE INDEXING
+# ================================================
+@app.get("/sitemap.xml")
+async def sitemap():
+    return """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <url>
+            <loc>https://digitalequb-backend.onrender.com/</loc>
+            <lastmod>2026-07-15</lastmod>
+            <priority>1.0</priority>
+        </url>
+        <url>
+            <loc>https://digitalequb-backend.onrender.com/privacy</loc>
+            <lastmod>2026-07-15</lastmod>
+            <priority>0.8</priority>
+        </url>
+        <url>
+            <loc>https://digitalequb-backend.onrender.com/terms</loc>
+            <lastmod>2026-07-15</lastmod>
+            <priority>0.8</priority>
+        </url>
+    </urlset>
+    """
+
+
+# ================================================
+# HOMEPAGE
+# ================================================
 @app.get("/", response_class=HTMLResponse)
 async def root():
     return """
@@ -111,6 +141,13 @@ async def root():
                 font-size: 14px;
                 font-weight: 500;
             }
+            .highlight {
+                background: #f0f7ff;
+                padding: 20px;
+                border-radius: 8px;
+                border-left: 4px solid #1a73e8;
+                margin: 20px 0;
+            }
         </style>
     </head>
     <body>
@@ -120,8 +157,10 @@ async def root():
             
             <p><span class="badge">✅ በGoogle የተረጋገጠ</span></p>
             
-            <h2>📌 ስለ መተግበሪያው</h2>
-            <p><strong>DigiEqub</strong> ለመተግበሪያዎች ደህንነቱ የተጠበቀ የኢሜል ማረጋገጫ እና ማሳወቂያ አገልግሎት ይሰጣል።</p>
+            <div class="highlight">
+                <h2>📌 ስለ መተግበሪያው</h2>
+                <p><strong>DigiEqub</strong> ለመተግበሪያዎች ደህንነቱ የተጠበቀ የኢሜል ማረጋገጫ እና ማሳወቂያ አገልግሎት ይሰጣል።</p>
+            </div>
             
             <h3>🔑 ዋና ዋና ባህሪያት</h3>
             <ul>
@@ -158,7 +197,10 @@ async def root():
     </html>
     """
 
-# ============ የግላዊነት ፖሊሲ ============
+
+# ================================================
+# PRIVACY POLICY
+# ================================================
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_policy():
     return """
@@ -257,7 +299,10 @@ async def privacy_policy():
     </html>
     """
 
-# ============ የአገልግሎት ውል ============
+
+# ================================================
+# TERMS OF SERVICE
+# ================================================
 @app.get("/terms", response_class=HTMLResponse)
 async def terms_of_service():
     return """
@@ -344,9 +389,10 @@ async def terms_of_service():
     </html>
     """
 
-# ============ የAPI ሰነዶች ============
+
+# ================================================
+# API DOCS
+# ================================================
 @app.get("/api/docs")
 async def api_docs():
     return {"message": "API documentation available at /docs"}
-
-# የነባር JSON መስመር ቢኖር ያስወግዱት!
