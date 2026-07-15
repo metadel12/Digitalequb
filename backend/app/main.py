@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse  # ✅ PlainTextResponse ን ያክሉ
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="DigiEqub API", version="1.0.0")
@@ -12,6 +12,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ================================================
+# 🆕 የGoogle ማረጋገጫ ፋይል መስመር (GOOGLE VERIFICATION)
+# ================================================
+@app.get("/google466a7f19e0c88aa9.html", response_class=PlainTextResponse)
+async def google_verification():
+    # ⚠️ ይህ በትክክል ይህ መሆን አለበት - ከGoogle ያወረዱትን ፋይል ይዘት ይቅዱ
+    return "google-site-verification: google466a7f19e0c88aa9.html"
 
 # ============ የቤት ገጽ (Homepage) ============
 @app.get("/", response_class=HTMLResponse)
