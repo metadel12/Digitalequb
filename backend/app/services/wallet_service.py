@@ -11,6 +11,7 @@ from pymongo.database import Database
 
 from ..core.mongo_utils import current_round_number, current_round_total_collected, new_id, next_payment_due, utcnow, wallet_defaults
 from ..services.cbe_service import CommercialBankOfEthiopiaService
+from ..utils.email import send_email as send_real_email
 
 logger = logging.getLogger(__name__)
 
@@ -37,36 +38,42 @@ def _push_notification(db, user_id: str, title: str, message: str,
 
 
 def _send_email_notification(db, user_id: str, subject: str, body: str) -> None:
-    """Queue an email notification via OTPService senders (fire-and-forget)."""
+    """Queue an email notification using configured email providers."""
+    user = {}
     try:
         user = db["users"].find_one({"_id": str(user_id)}) or {}
-        email = user.get("email")
-        if not email:
-            return
-
-        from ..services.otp_service import OTPService
-        svc = OTPService()
-
-        async def _send():
-            try:
-                if await svc._send_via_sendgrid(email, subject, body):
-                    return True
-            except Exception:
-                logger.exception("SendGrid mail failed for %s", email)
-            try:
-                if await svc._send_via_smtp(email, subject, body):
-                    return True
-            except Exception:
-                logger.exception("SMTP mail failed for %s", email)
-            return False
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_send())
-        except RuntimeError:
-            threading.Thread(target=lambda: asyncio.run(_send()), daemon=True).start()
     except Exception:
-        logger.exception("Failed to queue email notification for %s", user.get("email"))
+        try:
+            user = db.get("users", {}).find_one({"_id": str(user_id)}) or {}
+        except Exception:
+            user = {}
+
+    email = user.get("email")
+    if not email:
+        return
+
+    def _bg_send():
+        try:
+            result = send_real_email(email, subject, body)
+            logger.info("Wallet email sent to %s: %s", email, result)
+        except Exception:
+            logger.exception("Failed to send wallet email to %s", email)
+
+    threading.Thread(target=_bg_send, daemon=True).start()
+
+
+def _send_email_background(to_email: str, subject: str, body: str) -> None:
+    if not to_email:
+        return
+
+    def _bg_send():
+        try:
+            result = send_real_email(to_email, subject, body)
+            logger.info("Background email sent to %s: %s", to_email, result)
+        except Exception:
+            logger.exception("Failed to send background email to %s", to_email)
+
+    threading.Thread(target=_bg_send, daemon=True).start()
 
 
 class WalletService:
@@ -590,6 +597,39 @@ class WalletService:
                 f"<p>New wallet balance: <strong>ETB {balance_after:,.0f}</strong></p>"
             ),
         )
+
+        if all_paid:
+            group_name = group.get("name", "your group")
+            announce_subject = f"DigiEqub - Round {round_number} Paid for {group_name}"
+            announce_body = (
+                f"<h2>Round {round_number} Fully Paid</h2>"
+                f"<p>All members of <strong>{group_name}</strong> have completed their payments for round {round_number}.</p>"
+                f"<p>The group is now ready for winner selection.</p>"
+                f"<p>Total collected: <strong>{total_collected:,.0f} ETB</strong></p>"
+            )
+            for member in updated_members:
+                try:
+                    member_user = self.db["users"].find_one({"_id": str(member.get("user_id"))}) or {}
+                    email = member_user.get("email") or member.get("email")
+                    if email:
+                        _send_email_background(email, announce_subject, announce_body)
+                        self.db["notifications"].insert_one({
+                            "_id": new_id(),
+                            "user_id": str(member.get("user_id")),
+                            "title": "Round Paid - Winner Selection Ready",
+                            "message": f"Round {round_number} for {group_name} is fully paid. Winner selection is ready.",
+                            "type": "payment",
+                            "read": False,
+                            "priority": "high",
+                            "link": f"/groups/{group_id}",
+                            "metadata": {"group_id": str(group_id), "round_number": round_number, "group_name": group_name},
+                            "actions": [],
+                            "created_at": utcnow(),
+                            "updated_at": utcnow(),
+                        })
+                except Exception:
+                    logger.exception("Failed to announce fully paid round email for member %s", member.get("user_id"))
+
         return {
             "reference": reference,
             "transaction_id": tx["_id"],

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 import string
 from datetime import timedelta
@@ -29,9 +30,11 @@ from ...schemas.group import (
 )
 from ...services.cbe_service import CommercialBankOfEthiopiaService
 from ...services.bank_payment_service import BankPaymentService
+from ...services.email_service import EmailService
 from ...services.winner_service import WinnerService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _push_notification(db: Database, user_id: str, title: str, message: str,
@@ -79,6 +82,40 @@ def _record_transaction(db: Database, user_id: str, group_id: str, group_name: s
 
 def _generate_join_code(length: int = 6) -> str:
     return "".join(random.choices(string.digits, k=length))
+
+
+async def _send_group_creation_email(
+    user: dict,
+    *,
+    group_name: str,
+    join_code: str,
+    contribution_amount: float,
+    frequency: str,
+    max_members: int,
+) -> None:
+    email = (user or {}).get("email")
+    if not email:
+        return
+
+    subject = f"DigiEqub – Group '{group_name}' Created"
+    body = f"""
+    <html>
+      <body>
+        <h2>Equb group created successfully</h2>
+        <p>Hi {user.get('full_name') or 'there'},</p>
+        <p>Your Equb group <strong>{group_name}</strong> has been created successfully.</p>
+        <p><strong>Join code:</strong> {join_code}</p>
+        <p><strong>Contribution:</strong> ETB {float(contribution_amount):,.0f} / {frequency}</p>
+        <p><strong>Max members:</strong> {max_members}</p>
+        <p>You can manage the group from the DigiEqub app.</p>
+      </body>
+    </html>
+    """
+
+    try:
+        await EmailService().send_email(email, subject, body)
+    except Exception:
+        logger.exception("Failed to send group creation email to %s", email)
 
 
 def _group_response(group: dict, current_user: dict | None = None) -> dict:
@@ -287,6 +324,15 @@ async def create_comprehensive_group(payload: ComprehensiveGroupCreate, current_
             "role": "admin",
         },
         actions=[{"label": "View Group", "action": "view_group"}],
+    )
+
+    await _send_group_creation_email(
+        current_user,
+        group_name=gname,
+        join_code=join_code,
+        contribution_amount=float(payload.contribution_amount),
+        frequency=payload.frequency,
+        max_members=int(payload.max_members),
     )
 
     return {

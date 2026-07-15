@@ -25,6 +25,7 @@ def create_application() -> FastAPI:
     def startup() -> None:
         import threading
         import time
+        import asyncio
 
         db = get_database_instance()
         ensure_indexes(db)
@@ -52,6 +53,21 @@ def create_application() -> FastAPI:
 
         t = threading.Thread(target=auto_pay_loop, daemon=True, name="auto-pay")
         t.start()
+
+        # Suppress noisy connection-reset traces from Windows proactor when clients abort
+        def _asyncio_exception_handler(loop, context):
+            exc = context.get("exception")
+            if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)):
+                # ignore client disconnect errors
+                logger.debug("Ignored client disconnect exception: %s", exc)
+                return
+            loop.default_exception_handler(context)
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.set_exception_handler(_asyncio_exception_handler)
+        except Exception:
+            logger.exception("Failed to set custom asyncio exception handler")
 
     @app.get("/", tags=["Platform"])
     async def root():

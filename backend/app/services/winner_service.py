@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
 from typing import Any, Dict, List, Optional
 
 from pymongo.database import Database
 
 from ..core.mongo_utils import current_round_number, group_total_rounds, new_id, next_payment_due, utcnow
-from .cbe_service import CommercialBankOfEthiopiaService
-from .wallet_service import SYSTEM_PAYOUT_RATIO, WINNER_PAYOUT_RATIO, WalletService
+from ..services.cbe_service import CommercialBankOfEthiopiaService
+from ..services.wallet_service import SYSTEM_PAYOUT_RATIO, WINNER_PAYOUT_RATIO, WalletService
+from ..utils.email import send_email as send_real_email
 
 DEFAULT_SYSTEM_WALLET_LABEL = "DigiEqub Earnings Wallet"
 logger = logging.getLogger(__name__)
@@ -557,17 +559,17 @@ class WinnerService:
             )
             # Send email to each member
             if member_user.get("email"):
-                from ..services.otp_service import OTPService
-                import asyncio
+                def _bg_send(email_addr: str) -> None:
+                    try:
+                        result = send_real_email(email_addr, email_subject, email_body)
+                        logger.info("Winner announcement email send to %s result=%s", email_addr, result)
+                    except Exception:
+                        logger.exception("Failed to send winner announcement email to %s", email_addr)
+
                 try:
-                    svc = OTPService()
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.ensure_future(svc._send_via_smtp(member_user["email"], email_subject, email_body))
-                    else:
-                        loop.run_until_complete(svc._send_via_smtp(member_user["email"], email_subject, email_body))
+                    threading.Thread(target=_bg_send, args=(member_user["email"],), daemon=True).start()
                 except Exception:
-                    pass
+                    logger.exception("Failed to start background thread to send email to %s", member_user.get("email"))
 
             recipients.append(
                 {

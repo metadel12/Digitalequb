@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 from ..core.mongo_utils import current_round_number, current_round_total_collected, new_id, user_doc_to_response, utcnow
 from ..services.cbe_service import CommercialBankOfEthiopiaService
 from ..services.winner_service import WinnerService
-from ..utils.email import send_email
+from ..utils.email import send_email as send_real_email
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,29 @@ class AdminService:
                 "role": "super_admin",
             },
         }
+
+    def _send_email(self, to_email: str, subject: str, body: str) -> bool:
+        if not to_email:
+            return False
+        try:
+            result = send_real_email(to_email, subject, body)
+            logger.info("Email send to %s result=%s", to_email, result)
+            return isinstance(result, dict) and result.get("status") == "sent"
+        except Exception:
+            logger.exception("Failed to send email to %s", to_email)
+            return False
+
+    def _send_background_emails(self, emails: List[str], subject: str, body: str) -> None:
+        def send_to(e: str) -> None:
+            try:
+                self._send_email(e, subject, body)
+            except Exception:
+                logger.exception("Background email send failed for %s", e)
+
+        for email in emails:
+            if not email:
+                continue
+            threading.Thread(target=send_to, args=(email,), daemon=True).start()
 
     def get_all_groups(self) -> List[Dict[str, Any]]:
         groups = list(self.db["groups"].find({"status": "active"}).sort("created_at", -1))
@@ -500,7 +524,8 @@ class AdminService:
                     "$inc": {"members.$.total_contributed": float(payment.get("amount") or 0)},
                 },
             )
-            
+            payer_user_id = payment.get("user_id") or payment.get("member_id")
+            round_number = payment.get("round_number", 1)
         else:
             # Handle wallet payment verification (approve and debit wallet)
             # Approve receipt
@@ -550,7 +575,43 @@ class AdminService:
                     "$inc": {"members.$.total_contributed": float(payment.get("amount") or 0)},
                 },
             )
-            
+            payer_user_id = payment.get("user_id")
+            round_number = payment.get("round_number", 1)
+
+        # Send confirmation and round-paid notifications
+        try:
+            payer = self.db["users"].find_one({"_id": str(payer_user_id)}) or {}
+            payer_email = payer.get("email")
+            group = self.db["groups"].find_one({"_id": payment["group_id"]}) or {}
+            group_name = group.get("name", "your group")
+            if payer_email:
+                subject = f"DigiEqub - Payment Verified for {group_name}"
+                body = (
+                    f"<h2>Payment Verified</h2>"
+                    f"<p>Your payment of <strong>{float(payment.get('amount') or 0):,.0f} ETB</strong> for <strong>{group_name}</strong> round {round_number} has been verified.</p>"
+                )
+                threading.Thread(target=lambda: self._send_email(payer_email, subject, body), daemon=True).start()
+
+            members = list(group.get("members") or [])
+            all_paid = all(bool(member.get("has_paid_current_round")) for member in members) if members else False
+            if all_paid:
+                member_emails = []
+                for member in members:
+                    user = self.db["users"].find_one({"_id": str(member.get("user_id"))}) or {}
+                    email = user.get("email") or member.get("email")
+                    if email:
+                        member_emails.append(email)
+                if member_emails:
+                    subject = f"DigiEqub - Round {round_number} Paid for {group_name}"
+                    body = (
+                        f"<h2>Round {round_number} Fully Paid</h2>"
+                        f"<p>All members of <strong>{group_name}</strong> have completed payments for round {round_number}.</p>"
+                        f"<p>The group is now ready for winner selection.</p>"
+                    )
+                    self._send_background_emails(member_emails, subject, body)
+        except Exception:
+            logger.exception("Failed to send payment verification or round-paid emails")
+
         return {"success": True, "message": f"Payment verified", "payment_source": payment_source}
 
     def _create_user_notification(self, user_id: str, title: str, message: str, notification_type: str) -> None:

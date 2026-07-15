@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import math
+import threading
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
@@ -8,14 +10,30 @@ from pymongo.database import Database
 
 from ..core.mongo_utils import current_round_number, current_round_total_collected, new_id, next_payment_due, utcnow
 from ..models.payment_proof import PaymentProof
+from ..utils.email import send_email as send_real_email
 
 WINNER_PAYOUT_RATIO = 0.90
 SYSTEM_PAYOUT_RATIO = 0.10
 
 
+def _send_email_background(to: str, subject: str, body: str, logger: logging.Logger) -> None:
+    if not to:
+        return
+
+    def _send():
+        try:
+            result = send_real_email(to, subject, body)
+            logger.info("Email send to %s result=%s", to, result)
+        except Exception:
+            logger.exception("Failed to send email to %s", to)
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 class BankPaymentService:
     def __init__(self, db: Database):
         self.db = db
+        self.logger = logging.getLogger(__name__)
 
     def submit_payment_proof(self, user_id: str, group_id: str, amount: float, transaction_reference: str, proof_image: str) -> Dict[str, Any]:
         """Submit payment proof for bank transfer"""
@@ -173,6 +191,39 @@ class BankPaymentService:
             {"_id": payment_proof["group_id"]},
             {"$set": {"members": updated_members, "rules": rules, "updated_at": now, "current_round": round_number, "total_rounds": int(group.get("total_rounds") or 0)}},
         )
+
+        # Send confirmation email to payer and announcement to group members if all paid
+        try:
+            payer = self.db["users"].find_one({"_id": payment_proof["user_id"]}) or {}
+            payer_email = payer.get("email")
+            subject = f"DigiEqub - Payment Verified (Round {round_number})"
+            body = (
+                f"<h2>Payment Verified</h2>"
+                f"<p>Your payment of <strong>{amount:,.0f} ETB</strong> for <strong>{group.get('name')}</strong> round {round_number} has been verified by admin.</p>"
+            )
+            if payer_email:
+                _send_email_background(payer_email, subject, body, self.logger)
+                self.logger.info("Queued payment confirmation email to %s", payer_email)
+
+            # If all members have paid, announce to group members
+            if all_paid:
+                announce_subject = f"DigiEqub - Round {round_number} Paid for {group.get('name')}"
+                announce_body = (
+                    f"<h2>Round {round_number} Complete</h2>"
+                    f"<p>All members have paid for round {round_number} of <strong>{group.get('name')}</strong>. The group is ready for winner selection.</p>"
+                    f"<p>Total collected: <strong>{total_collected}</strong> ETB</p>"
+                )
+                for member in updated_members:
+                    try:
+                        user = self.db["users"].find_one({"_id": str(member.get("user_id"))}) or {}
+                        email = user.get("email") or member.get("email")
+                        if email:
+                            _send_email_background(email, announce_subject, announce_body, self.logger)
+                            self.logger.info("Queued announcement email to %s", email)
+                    except Exception:
+                        self.logger.exception("Failed to announce to member %s", member.get("user_id"))
+        except Exception:
+            self.logger.exception("Failed to queue payment confirmation/announcement emails")
 
     def get_pending_payments(self, group_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get pending payment proofs for admin verification"""
